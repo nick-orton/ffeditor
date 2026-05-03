@@ -13,14 +13,14 @@ filesystem, convert audio formats, and edit ID3 tags — all from the terminal.
 ```sh
 git clone https://github.com/nick-orton/ffeditor
 cd ffeditor
-go build -o ffeditor .
+make
 ```
 
 ## Testing
 
 ```sh
-go test ./...        # all tests (unit + integration)
-go test -short ./... # unit tests only; skips ffmpeg conversion tests
+make test       # all tests (unit + integration)
+make test-short # unit tests only; skips ffmpeg conversion tests
 ```
 
 Integration tests require `ffmpeg` on `$PATH` and are skipped automatically
