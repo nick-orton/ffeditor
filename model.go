@@ -39,11 +39,15 @@ type model struct {
 }
 
 func newModel(dir string, ffmpegAvailable bool) model {
-	return model{
+	m := model{
 		mode:            modeBrowse,
 		browser:         newBrowserModel(dir),
 		ffmpegAvailable: ffmpegAvailable,
 	}
+	if !ffmpegAvailable {
+		m.statusMsg = "ffmpeg not found — conversion disabled"
+	}
+	return m
 }
 
 func (m model) Init() tea.Cmd {
@@ -132,6 +136,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tagErrMsg:
 		m.mode = modeBrowse
 		m.statusMsg = "Tag error: " + msg.err.Error()
+		m.statusIsError = true
+		return m, nil
+
+	case dirReadErrMsg:
+		m.statusMsg = "Cannot read directory: " + msg.err.Error()
 		m.statusIsError = true
 		return m, nil
 
