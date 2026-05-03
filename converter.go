@@ -31,8 +31,18 @@ func convertFile(ctx context.Context, src, destDir string) tea.Cmd {
 			return convertSkippedMsg{src}
 		}
 
-		cmd := exec.CommandContext(ctx, "ffmpeg", "-y", "-i", src,
-			"-codec:a", "libmp3lame", "-qscale:a", "2", dest)
+		// ogg/opus store user tags in stream-level metadata (Vorbis Comments),
+		// so they must be mapped to global output metadata explicitly.
+		// m4a stores tags at the container level, so -map_metadata 0 suffices.
+		metaArgs := []string{"-map_metadata", "0"}
+		ext := strings.ToLower(filepath.Ext(src))
+		if ext == ".opus" || ext == ".ogg" {
+			metaArgs = []string{"-map_metadata:g", "0:s:0"}
+		}
+
+		args := append([]string{"-y", "-i", src}, metaArgs...)
+		args = append(args, "-codec:a", "libmp3lame", "-qscale:a", "2", dest)
+		cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 		cmd.Stdout = nil
 		cmd.Stderr = nil
 

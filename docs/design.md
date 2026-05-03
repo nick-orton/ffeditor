@@ -90,8 +90,7 @@ commands.go          — command-bar parsing & dispatch
 
 ### 2. Audio Conversion
 
-Converts audio files to `.mp3` by shelling out 
-to `ffmpeg`. 
+Converts audio files to `.mp3` by shelling out to `ffmpeg`.
 
 Supported formats: `.opus`, `.ogg`, `.m4a`
 
@@ -101,13 +100,15 @@ Place the cursor on a file (or `Space`-select it) and run `:convert`.
 The tool executes:
 
 ```text
-ffmpeg -y -i input.opus -codec:a libmp3lame -qscale:a 2 output.mp3
+ffmpeg -y -i input.opus -map_metadata:g 0:s:0 \
+    -codec:a libmp3lame -qscale:a 2 output.mp3
 ```
 
 - Output file is placed in the same directory with the `.mp3`
   extension.
 - Source file is kept (not deleted).
-- ID3 tags are carried over automatically by ffmpeg where supported.
+- Metadata from the source file is copied into the output ID3 tag
+  (see [Metadata copying](#metadata-copying) below).
 
 #### Bulk convert
 
@@ -124,6 +125,25 @@ Select a directory (or multi-select files) and run `:convert`.
   `Conversion complete (N converted, M skipped, E errors)`.
 - The browser directory is refreshed automatically when conversion
   finishes so new `.mp3` files appear immediately.
+
+#### Metadata copying
+
+When converting, the tool copies metadata from the source file into
+the ID3 tag of the output `.mp3`. The six standard fields — Title,
+Artist, Album, Year, Track, and Genre — are preserved where present.
+
+Different container formats store tags at different levels, so the
+`-map_metadata` flag passed to `ffmpeg` varies by extension:
+
+| Format  | Tag storage                | ffmpeg flag                  |
+|---------|----------------------------|------------------------------|
+| `.m4a`  | Container atoms (global)   | `-map_metadata 0`            |
+| `.opus` | Vorbis Comments (stream)   | `-map_metadata:g 0:s:0`      |
+| `.ogg`  | Vorbis Comments (stream)   | `-map_metadata:g 0:s:0`      |
+
+The `:g` specifier on the output side ensures all tags land in the
+global (file-level) ID3 header rather than being attached to the
+audio stream.
 
 #### Cancellation
 

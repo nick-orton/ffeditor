@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	id3 "github.com/bogem/id3v2/v2"
 )
 
 func TestMain(m *testing.M) {
@@ -153,6 +155,49 @@ func TestConvertSkipsExisting(t *testing.T) {
 	msg := convertFile(context.Background(), src, dir)()
 	if _, ok := msg.(convertSkippedMsg); !ok {
 		t.Fatalf("second convert: expected convertSkippedMsg, got %T", msg)
+	}
+}
+
+func TestConvertCopiesMetadata(t *testing.T) {
+	skipIfNoFFmpeg(t)
+
+	dir := t.TempDir()
+	src := filepath.Join(dir, "tagged.opus")
+
+	// Create an opus file with embedded metadata.
+	cmd := exec.Command("ffmpeg",
+		"-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono",
+		"-t", "0.5", "-c:a", "libopus",
+		"-metadata", "title=TestTitle",
+		"-metadata", "artist=TestArtist",
+		"-metadata", "album=TestAlbum",
+		src)
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("failed to create tagged opus: %v", err)
+	}
+
+	msg := convertFile(context.Background(), src, dir)()
+	done, ok := msg.(convertDoneMsg)
+	if !ok {
+		t.Fatalf("expected convertDoneMsg, got %T: %v", msg, msg)
+	}
+
+	tag, err := id3.Open(done.dest, id3.Options{Parse: true})
+	if err != nil {
+		t.Fatalf("failed to open output mp3: %v", err)
+	}
+	defer tag.Close()
+
+	if tag.Title() != "TestTitle" {
+		t.Errorf("title: got %q, want %q", tag.Title(), "TestTitle")
+	}
+	if tag.Artist() != "TestArtist" {
+		t.Errorf("artist: got %q, want %q", tag.Artist(), "TestArtist")
+	}
+	if tag.Album() != "TestAlbum" {
+		t.Errorf("album: got %q, want %q", tag.Album(), "TestAlbum")
 	}
 }
 
