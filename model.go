@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -17,11 +18,6 @@ const (
 	modeCommand
 	modeTag
 )
-
-// Phase 4 stub — replaced when tagger.go is created.
-type taggerModel struct {
-	width int
-}
 
 type model struct {
 	mode            mode
@@ -60,6 +56,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.browser.height = m.height - 4
+		m.tagger.width = m.width
 
 	case execConvertMsg:
 		if !m.ffmpegAvailable {
@@ -102,6 +99,42 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m, teaCmd = nextConvert(m)
 		return m, teaCmd
 
+	case execTagMsg:
+		tagger, err := newTaggerModel(msg.files)
+		if err != nil {
+			m.statusMsg = "Error opening tag: " + err.Error()
+			m.statusIsError = true
+			return m, nil
+		}
+		tagger.width = m.width
+		m.tagger = tagger
+		m.mode = modeTag
+		return m, nil
+
+	case tagSavedMsg:
+		m.mode = modeBrowse
+		m.statusMsg = "Tags saved"
+		m.statusIsError = false
+		return m, nil
+
+	case tagBulkSavedMsg:
+		m.mode = modeBrowse
+		m.statusMsg = fmt.Sprintf("Tags updated (%d files)", msg.count)
+		m.statusIsError = false
+		return m, nil
+
+	case tagCancelledMsg:
+		m.mode = modeBrowse
+		m.statusMsg = ""
+		m.statusIsError = false
+		return m, nil
+
+	case tagErrMsg:
+		m.mode = modeBrowse
+		m.statusMsg = "Tag error: " + msg.err.Error()
+		m.statusIsError = true
+		return m, nil
+
 	case dirChangedMsg:
 		// Browser dir already updated; hook point for future phases.
 
@@ -129,6 +162,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			var cmd tea.Cmd
 			m.browser, cmd = m.browser.Update(msg)
+			return m, cmd
+
+		case modeTag:
+			var cmd tea.Cmd
+			m.tagger, cmd = m.tagger.Update(msg)
 			return m, cmd
 
 		case modeCommand:
@@ -214,6 +252,20 @@ func dispatchCommand(m model, cmd string, args []string) (model, tea.Cmd) {
 			return m, nil
 		}
 		return m, func() tea.Msg { return execConvertMsg{files} }
+	case "tag":
+		entries := m.browser.selectedEntries()
+		var mp3s []string
+		for _, e := range entries {
+			if !e.IsDir() && strings.ToLower(filepath.Ext(e.Name())) == ".mp3" {
+				mp3s = append(mp3s, filepath.Join(m.browser.dir, e.Name()))
+			}
+		}
+		if len(mp3s) == 0 {
+			m.statusMsg = "No .mp3 files selected"
+			m.statusIsError = true
+			return m, nil
+		}
+		return m, func() tea.Msg { return execTagMsg{mp3s} }
 	default:
 		m.statusMsg = "Unknown command: " + cmd
 		m.statusIsError = true
@@ -258,7 +310,12 @@ func (m model) View() string {
 	if browserHeight < 0 {
 		browserHeight = 0
 	}
-	browserView := m.browser.View(m.width, browserHeight)
+	var browserView string
+	if m.mode == modeTag {
+		browserView = m.tagger.View(m.width, browserHeight)
+	} else {
+		browserView = m.browser.View(m.width, browserHeight)
+	}
 
 	var statusLine string
 	if m.statusIsError {

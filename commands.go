@@ -20,6 +20,7 @@ type cmdbarModel struct {
 }
 
 type execConvertMsg struct{ files []string }
+type execTagMsg struct{ files []string }
 
 // expandTilde replaces a leading ~ with the user's home directory.
 func expandTilde(path string) string {
