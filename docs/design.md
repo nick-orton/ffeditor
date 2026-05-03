@@ -66,7 +66,7 @@ commands.go          — command-bar parsing & dispatch
 | `i`           | Toggle hidden files (dotfiles)                  |
 | `Space`       | Toggle selection (for bulk ops), advance cursor |
 | `e`           | Edit ID3 tags for selected `.mp3` file(s)       |
-| `c`           | Convert selected `.opus`/`.m4a` files to `.mp3` |
+| `c`           | Convert selected audio files to `.mp3`          |
 | `:`           | Focus command bar                               |
 | `Ctrl+C`      | Cancel in-progress conversion (stay in app)     |
 | `q`           | Quit                                            |
@@ -90,8 +90,10 @@ commands.go          — command-bar parsing & dispatch
 
 ### 2. Audio Conversion
 
-Converts `.opus` and `.m4a` files to `.mp3` by shelling out to
-`ffmpeg`.
+Converts audio files to `.mp3` by shelling out 
+to `ffmpeg`. 
+
+Supported formats: `.opus`, `.ogg`, `.m4a`
 
 #### Single file
 
@@ -111,7 +113,7 @@ ffmpeg -y -i input.opus -codec:a libmp3lame -qscale:a 2 output.mp3
 
 Select a directory (or multi-select files) and run `:convert`.
 
-- Recursively finds all `.opus` and `.m4a` files in the selection.
+- Recursively finds all convertable audio files in the selection.
 - Duplicate paths are deduplicated before conversion begins.
 - Converts each file sequentially (one ffmpeg process at a time),
   showing a progress count in the status bar: `Converting 3/17...`
