@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"path/filepath"
 	"strings"
 	"unicode"
@@ -246,28 +245,20 @@ func (m taggerModel) saveTags() tea.Cmd {
 }
 
 func (m taggerModel) View(width, height int) string {
-	lines := make([]string, 0, height)
-
-	// Vertically center: title + blank + 6 fields + blank + hint = 10 lines.
-	const formHeight = 10
-	topPad := (height - formHeight) / 2
-	if topPad < 0 {
-		topPad = 0
-	}
-	for i := 0; i < topPad; i++ {
-		lines = append(lines, "")
+	boxWidth := width - 4
+	if boxWidth < 44 {
+		boxWidth = 44
 	}
 
-	// Filename header.
-	var title string
-	if len(m.files) == 1 {
-		title = "  " + filepath.Base(m.files[0])
-	} else {
-		title = fmt.Sprintf("  %d files", len(m.files))
+	// Files box.
+	var fileLines []string
+	for _, f := range m.files {
+		fileLines = append(fileLines, filepath.Base(f))
 	}
-	lines = append(lines, title)
-	lines = append(lines, "")
+	filesBox := titledBox("Files", strings.Join(fileLines, "\n"), boxWidth)
 
+	// Tags box.
+	var fieldLines []string
 	for i, f := range m.fields {
 		label := styleTagLabel.Render(f.label + ":")
 		var val string
@@ -276,11 +267,48 @@ func (m taggerModel) View(width, height int) string {
 		} else {
 			val = f.value
 		}
-		lines = append(lines, label+" "+val)
+		fieldLines = append(fieldLines, label+" "+val)
 	}
+	tagsBox := titledBox("Tags", strings.Join(fieldLines, "\n"), boxWidth)
 
-	lines = append(lines, "")
-	lines = append(lines, "  Up / Down: navigate   Tab: complete   Ctrl+S: save   Esc: cancel")
+	hint := "  Up/Down: navigate   Tab: complete   Ctrl+S: save   Esc: cancel"
+	content := strings.Join([]string{filesBox, "", tagsBox, "", hint}, "\n")
 
-	return lipgloss.JoinVertical(lipgloss.Left, lines...)
+	// Vertically center.
+	contentHeight := strings.Count(content, "\n") + 1
+	topPad := (height - contentHeight) / 2
+	if topPad <= 0 {
+		return content
+	}
+	return strings.Repeat("\n", topPad) + content
+}
+
+// titledBox draws a rounded box with a title embedded in the top border.
+func titledBox(title, content string, width int) string {
+	b := lipgloss.RoundedBorder()
+	borderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("62"))
+
+	inner := width - 2 // chars between the two corner chars
+
+	// Top border: ╭─ Title ──...──╮
+	titleSection := " " + title + " "
+	dashCount := inner - 1 - len(titleSection)
+	if dashCount < 0 {
+		dashCount = 0
+	}
+	top := b.TopLeft + b.Top + titleSection + strings.Repeat(b.Top, dashCount) + b.TopRight
+	bottom := b.BottomLeft + strings.Repeat(b.Bottom, inner) + b.BottomRight
+
+	var lines []string
+	lines = append(lines, borderStyle.Render(top))
+	for _, line := range strings.Split(content, "\n") {
+		padWidth := inner - 2 - lipgloss.Width(line)
+		if padWidth < 0 {
+			padWidth = 0
+		}
+		lines = append(lines, borderStyle.Render(b.Left)+" "+line+strings.Repeat(" ", padWidth)+" "+borderStyle.Render(b.Right))
+	}
+	lines = append(lines, borderStyle.Render(bottom))
+
+	return strings.Join(lines, "\n")
 }
