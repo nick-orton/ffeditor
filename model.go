@@ -142,7 +142,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m, teaCmd = dispatchCommand(m, cmd, args)
 				return m, teaCmd
 			case "tab":
-				m.cmdbar.input = tabComplete(m.cmdbar.input, m.browser.dir)
+				m.cmdbar = m.cmdbar.handleTab(m.browser.dir)
 				return m, nil
 			default:
 				var cmd tea.Cmd

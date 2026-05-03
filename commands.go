@@ -8,9 +8,15 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// knownCommands is the sorted list of valid command names used for tab completion.
+var knownCommands = []string{"cd", "convert", "q", "tag"}
+
 type cmdbarModel struct {
-	input  string
-	active bool
+	input      string
+	active     bool
+	tabPrefix  string   // input prefix when the current tab cycle started
+	tabMatches []string // nil when no active tab cycle
+	tabIndex   int
 }
 
 type execConvertMsg struct{ files []string }
@@ -42,11 +48,17 @@ func (m cmdbarModel) Update(msg tea.Msg) (cmdbarModel, tea.Cmd) {
 		case "esc":
 			m.input = ""
 			m.active = false
+			m.tabMatches = nil
+			m.tabIndex = 0
 		case "backspace":
+			m.tabMatches = nil
+			m.tabIndex = 0
 			if len(m.input) > 0 {
 				m.input = m.input[:len(m.input)-1]
 			}
 		default:
+			m.tabMatches = nil
+			m.tabIndex = 0
 			if len(msg.Runes) == 1 {
 				m.input += string(msg.Runes)
 			}
@@ -55,10 +67,46 @@ func (m cmdbarModel) Update(msg tea.Msg) (cmdbarModel, tea.Cmd) {
 	return m, nil
 }
 
-// tabComplete attempts directory tab-completion for the "cd" command.
-// It returns the updated input string. browserDir is used as the base
-// for resolving relative paths.
-func tabComplete(input, browserDir string) string {
+// handleTab performs tab completion. If the input is a bare word (no spaces),
+// it cycles through command names that start with that prefix. If the input
+// starts with "cd ", it completes the path argument.
+func (m cmdbarModel) handleTab(browserDir string) cmdbarModel {
+	trimmed := strings.TrimSpace(m.input)
+
+	if !strings.Contains(trimmed, " ") {
+		// Command-name completion / cycling.
+		if m.tabMatches == nil {
+			m.tabPrefix = trimmed
+			m.tabMatches = commandsStartingWith(trimmed)
+			m.tabIndex = 0
+		}
+		if len(m.tabMatches) > 0 {
+			m.input = m.tabMatches[m.tabIndex]
+			m.tabIndex = (m.tabIndex + 1) % len(m.tabMatches)
+		}
+		return m
+	}
+
+	// Path completion for cd arguments (no cycling — longest-common-prefix).
+	m.tabMatches = nil
+	m.tabIndex = 0
+	m.input = tabCompletePath(m.input, browserDir)
+	return m
+}
+
+func commandsStartingWith(prefix string) []string {
+	var result []string
+	for _, cmd := range knownCommands {
+		if strings.HasPrefix(cmd, prefix) {
+			result = append(result, cmd)
+		}
+	}
+	return result
+}
+
+// tabCompletePath attempts directory tab-completion for the "cd" command.
+// browserDir is used as the base for resolving relative paths.
+func tabCompletePath(input, browserDir string) string {
 	trimmed := strings.TrimLeft(input, " ")
 	if !strings.HasPrefix(trimmed, "cd") {
 		return input
