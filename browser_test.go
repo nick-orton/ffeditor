@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestReadDirSortOrder(t *testing.T) {
@@ -81,6 +83,136 @@ func TestSelectedEntries_MultiSelected(t *testing.T) {
 	}
 	if result[1].Name() != "c.mp3" {
 		t.Errorf("expected c.mp3, got %s", result[1].Name())
+	}
+}
+
+func TestFilterEntries_HidesHidden(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "visible.mp3"), nil, 0644)
+	os.WriteFile(filepath.Join(dir, ".hidden"), nil, 0644)
+	os.MkdirAll(filepath.Join(dir, "subdir"), 0755)
+
+	entries, _ := os.ReadDir(dir)
+	filtered := filterEntries(entries, false)
+
+	for _, e := range filtered {
+		if e.Name() == ".hidden" {
+			t.Error(".hidden should not appear when showHidden=false")
+		}
+	}
+	names := make(map[string]bool)
+	for _, e := range filtered {
+		names[e.Name()] = true
+	}
+	if !names["visible.mp3"] {
+		t.Error("visible.mp3 should be present")
+	}
+	if !names["subdir"] {
+		t.Error("subdir should be present")
+	}
+}
+
+func TestFilterEntries_ShowsHidden(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "visible.mp3"), nil, 0644)
+	os.WriteFile(filepath.Join(dir, ".hidden"), nil, 0644)
+	os.MkdirAll(filepath.Join(dir, "subdir"), 0755)
+
+	entries, _ := os.ReadDir(dir)
+	filtered := filterEntries(entries, true)
+
+	if len(filtered) != 3 {
+		t.Errorf("expected 3 entries, got %d", len(filtered))
+	}
+}
+
+func TestFilterEntries_AlwaysShowsSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target.mp3")
+	os.WriteFile(target, nil, 0644)
+	link := filepath.Join(dir, "link.mp3")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skip("symlinks not supported:", err)
+	}
+
+	entries, _ := os.ReadDir(dir)
+	filtered := filterEntries(entries, false)
+
+	names := make(map[string]bool)
+	for _, e := range filtered {
+		names[e.Name()] = true
+	}
+	if !names["link.mp3"] {
+		t.Error("symlink should be visible when showHidden=false")
+	}
+}
+
+func TestToggleHidden_ReloadsDir(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "song.mp3"), nil, 0644)
+	os.WriteFile(filepath.Join(dir, ".dotfile"), nil, 0644)
+
+	m := newBrowserModel(dir)
+	for _, e := range m.entries {
+		if e.Name() == ".dotfile" {
+			t.Error(".dotfile should be hidden initially")
+		}
+	}
+
+	keyI := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("i")}
+	m2, _ := m.Update(keyI)
+	found := false
+	for _, e := range m2.entries {
+		if e.Name() == ".dotfile" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error(".dotfile should be visible after toggling i")
+	}
+
+	m3, _ := m2.Update(keyI)
+	for _, e := range m3.entries {
+		if e.Name() == ".dotfile" {
+			t.Error(".dotfile should be hidden again after second toggle")
+		}
+	}
+}
+
+func TestFollowSymlinkToDir(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "realdir")
+	if err := os.MkdirAll(target, 0755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(target, "song.mp3"), nil, 0644)
+
+	link := filepath.Join(root, "linkdir")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skip("symlinks not supported:", err)
+	}
+
+	m := newBrowserModel(root)
+
+	// find the symlink entry index
+	idx := -1
+	for i, e := range m.entries {
+		if e.Name() == "linkdir" {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		t.Fatal("linkdir not found in entries")
+	}
+	m.cursor = idx
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
+	if m2.dir != link {
+		t.Errorf("expected dir %s, got %s", link, m2.dir)
+	}
+	if len(m2.entries) == 0 || m2.entries[0].Name() != "song.mp3" {
+		t.Error("expected song.mp3 inside followed symlink dir")
 	}
 }
 

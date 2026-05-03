@@ -13,4 +13,5 @@ var (
 	styleTagLabel   = lipgloss.NewStyle().Width(10).Align(lipgloss.Right)
 	styleTagFocused = lipgloss.NewStyle().Underline(true)
 	styleCmdPrefix  = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	styleSymlink    = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
 )
