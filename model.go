@@ -72,7 +72,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 
 		case modeCommand:
-			if msg.String() == "enter" {
+			switch msg.String() {
+			case "enter":
 				cmd, args := parseCommand(m.cmdbar.input)
 				m.cmdbar.input = ""
 				m.cmdbar.active = false
@@ -80,13 +81,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				var teaCmd tea.Cmd
 				m, teaCmd = dispatchCommand(m, cmd, args)
 				return m, teaCmd
+			case "tab":
+				m.cmdbar.input = tabComplete(m.cmdbar.input, m.browser.dir)
+				return m, nil
+			default:
+				var cmd tea.Cmd
+				m.cmdbar, cmd = m.cmdbar.Update(msg)
+				if !m.cmdbar.active {
+					m.mode = modeBrowse
+				}
+				return m, cmd
 			}
-			var cmd tea.Cmd
-			m.cmdbar, cmd = m.cmdbar.Update(msg)
-			if !m.cmdbar.active {
-				m.mode = modeBrowse
-			}
-			return m, cmd
 		}
 	}
 
@@ -110,7 +115,7 @@ func dispatchCommand(m model, cmd string, args []string) (model, tea.Cmd) {
 			}
 			target = home
 		} else {
-			arg := args[0]
+			arg := expandTilde(args[0])
 			if filepath.IsAbs(arg) {
 				target = arg
 			} else {
