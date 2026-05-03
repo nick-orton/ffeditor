@@ -13,6 +13,8 @@ type cmdbarModel struct {
 	active bool
 }
 
+type execConvertMsg struct{ files []string }
+
 // expandTilde replaces a leading ~ with the user's home directory.
 func expandTilde(path string) string {
 	if path == "~" || strings.HasPrefix(path, "~/") {

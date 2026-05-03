@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,6 +32,14 @@ type model struct {
 	statusMsg       string
 	statusIsError   bool
 	ffmpegAvailable bool
+	convertQueue      []string
+	convertIndex      int
+	convertDone       int
+	convertSkipped    int
+	convertErrors     int
+	convertCtx        context.Context
+	convertCancel     context.CancelFunc
+	convertCancelled  bool
 }
 
 func newModel(dir string, ffmpegAvailable bool) model {
@@ -52,12 +61,63 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.browser.height = m.height - 4
 
+	case execConvertMsg:
+		if !m.ffmpegAvailable {
+			m.statusMsg = "ffmpeg not available"
+			m.statusIsError = true
+			return m, nil
+		}
+		if len(msg.files) == 0 {
+			m.statusMsg = "No convertible files selected"
+			m.statusIsError = true
+			return m, nil
+		}
+		m.convertQueue = msg.files
+		m.convertIndex = 0
+		m.convertDone = 0
+		m.convertSkipped = 0
+		m.convertErrors = 0
+		ctx, cancel := context.WithCancel(context.Background())
+		m.convertCtx = ctx
+		m.convertCancel = cancel
+		m.statusMsg = fmt.Sprintf("Converting 1/%d...", len(m.convertQueue))
+		m.statusIsError = false
+		return m, convertFile(m.convertCtx, m.convertQueue[0], m.browser.dir)
+
+	case convertDoneMsg:
+		m.convertDone++
+		var teaCmd tea.Cmd
+		m, teaCmd = nextConvert(m)
+		return m, teaCmd
+
+	case convertSkippedMsg:
+		m.convertSkipped++
+		var teaCmd tea.Cmd
+		m, teaCmd = nextConvert(m)
+		return m, teaCmd
+
+	case convertErrMsg:
+		m.convertErrors++
+		var teaCmd tea.Cmd
+		m, teaCmd = nextConvert(m)
+		return m, teaCmd
+
 	case dirChangedMsg:
 		// Browser dir already updated; hook point for future phases.
 
 	case tea.KeyMsg:
 		switch m.mode {
 		case modeBrowse:
+			if msg.String() == "ctrl+c" {
+				if m.convertCancel != nil {
+					m.convertCancel()
+					m.convertCancelled = true
+					m.statusMsg = "Conversion cancelled"
+					m.statusIsError = false
+					return m, nil
+				}
+				return m, nil
+			}
 			if msg.String() == "q" {
 				return m, tea.Quit
 			}
@@ -140,11 +200,54 @@ func dispatchCommand(m model, cmd string, args []string) (model, tea.Cmd) {
 		m.statusMsg = ""
 		m.statusIsError = false
 		return m, teaCmd
+	case "convert":
+		if !m.ffmpegAvailable {
+			m.statusMsg = "ffmpeg not available — conversion disabled"
+			m.statusIsError = true
+			return m, nil
+		}
+		entries := m.browser.selectedEntries()
+		files := buildConvertList(entries, m.browser.dir)
+		if len(files) == 0 {
+			m.statusMsg = "No convertible files selected (.opus or .m4a)"
+			m.statusIsError = true
+			return m, nil
+		}
+		return m, func() tea.Msg { return execConvertMsg{files} }
 	default:
 		m.statusMsg = "Unknown command: " + cmd
 		m.statusIsError = true
 		return m, nil
 	}
+}
+
+func nextConvert(m model) (model, tea.Cmd) {
+	if m.convertCancelled {
+		m.convertCancel = nil
+		m.convertCtx = nil
+		m.convertCancelled = false
+		m.convertQueue = nil
+		var teaCmd tea.Cmd
+		m.browser, teaCmd = m.browser.changeDir(m.browser.dir)
+		return m, teaCmd
+	}
+	m.convertIndex++
+	if m.convertIndex < len(m.convertQueue) {
+		m.statusMsg = fmt.Sprintf("Converting %d/%d...", m.convertIndex+1, len(m.convertQueue))
+		m.statusIsError = false
+		return m, convertFile(m.convertCtx, m.convertQueue[m.convertIndex], m.browser.dir)
+	}
+	if m.convertCancel != nil {
+		m.convertCancel()
+		m.convertCancel = nil
+		m.convertCtx = nil
+	}
+	m.statusMsg = fmt.Sprintf("Conversion complete (%d converted, %d skipped, %d errors)",
+		m.convertDone, m.convertSkipped, m.convertErrors)
+	m.statusIsError = m.convertErrors > 0
+	var teaCmd tea.Cmd
+	m.browser, teaCmd = m.browser.changeDir(m.browser.dir)
+	return m, teaCmd
 }
 
 func (m model) View() string {
