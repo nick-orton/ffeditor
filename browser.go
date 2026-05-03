@@ -26,12 +26,31 @@ func isAudio(name string) bool {
 }
 
 type browserModel struct {
-	dir      string
-	entries  []os.DirEntry
-	cursor   int
-	offset   int
-	selected map[int]bool
-	height   int
+	dir        string
+	entries    []os.DirEntry
+	cursor     int
+	offset     int
+	selected   map[int]bool
+	height     int
+	showHidden bool
+}
+
+func isSymlinkToDir(entry os.DirEntry, dir string) bool {
+	if entry.Type()&os.ModeSymlink == 0 {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(dir, entry.Name()))
+	return err == nil && info.IsDir()
+}
+
+func filterEntries(entries []os.DirEntry, showHidden bool) []os.DirEntry {
+	var result []os.DirEntry
+	for _, e := range entries {
+		if showHidden || !strings.HasPrefix(e.Name(), ".") {
+			result = append(result, e)
+		}
+	}
+	return result
 }
 
 func newBrowserModel(dir string) browserModel {
@@ -41,6 +60,7 @@ func newBrowserModel(dir string) browserModel {
 	}
 	entries, err := os.ReadDir(dir)
 	if err == nil {
+		entries = filterEntries(entries, false)
 		sortEntries(entries)
 		m.entries = entries
 	}
@@ -63,6 +83,7 @@ func (m browserModel) changeDir(dir string) (browserModel, tea.Cmd) {
 		m.selected = make(map[int]bool)
 		return m, func() tea.Msg { return dirReadErrMsg{dir, err} }
 	}
+	entries = filterEntries(entries, m.showHidden)
 	sortEntries(entries)
 	m.dir = dir
 	m.entries = entries
@@ -101,9 +122,11 @@ func (m browserModel) Update(msg tea.Msg) (browserModel, tea.Cmd) {
 		case "k", "up":
 			m = m.scrollUp()
 		case "enter":
-			if len(m.entries) > 0 && m.entries[m.cursor].IsDir() {
-				newDir := filepath.Join(m.dir, m.entries[m.cursor].Name())
-				return m.changeDir(newDir)
+			if len(m.entries) > 0 {
+				entry := m.entries[m.cursor]
+				if entry.IsDir() || isSymlinkToDir(entry, m.dir) {
+					return m.changeDir(filepath.Join(m.dir, entry.Name()))
+				}
 			}
 		case "h":
 			parent := filepath.Dir(m.dir)
@@ -111,10 +134,15 @@ func (m browserModel) Update(msg tea.Msg) (browserModel, tea.Cmd) {
 				return m.changeDir(parent)
 			}
 		case "l":
-			if len(m.entries) > 0 && m.entries[m.cursor].IsDir() {
-				newDir := filepath.Join(m.dir, m.entries[m.cursor].Name())
-				return m.changeDir(newDir)
+			if len(m.entries) > 0 {
+				entry := m.entries[m.cursor]
+				if entry.IsDir() || isSymlinkToDir(entry, m.dir) {
+					return m.changeDir(filepath.Join(m.dir, entry.Name()))
+				}
 			}
+		case "i":
+			m.showHidden = !m.showHidden
+			return m.changeDir(m.dir)
 		case " ":
 			if len(m.entries) > 0 {
 				m.selected[m.cursor] = !m.selected[m.cursor]
@@ -175,6 +203,12 @@ func (m browserModel) View(width, height int) string {
 			styledName = styleSelected.Render(displayName)
 		case entry.IsDir():
 			styledName = styleDir.Render(name + "/")
+		case entry.Type()&os.ModeSymlink != 0:
+			if isSymlinkToDir(entry, m.dir) {
+				styledName = styleSymlink.Render(name + "@/")
+			} else {
+				styledName = styleSymlink.Render(name + "@")
+			}
 		case isAudio(name):
 			styledName = styleAudio.Render(name)
 		case strings.HasPrefix(name, "."):
