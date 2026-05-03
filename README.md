@@ -16,6 +16,18 @@ cd ffeditor
 go build -o ffeditor .
 ```
 
+## Testing
+
+```sh
+go test ./...        # all tests (unit + integration)
+go test -short ./... # unit tests only; skips ffmpeg conversion tests
+```
+
+Integration tests require `ffmpeg` on `$PATH` and are skipped automatically
+when it is absent or when `-short` is passed. On the first run with ffmpeg
+available, `TestMain` generates `testdata/silence.opus` so the fixture is
+ready for subsequent runs.
+
 ## Usage
 
 ```sh
