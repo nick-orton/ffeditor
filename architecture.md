@@ -1,6 +1,6 @@
 # FFEditor — Technical Architecture
 
-[design](./design.md)
+[Design](./design.md)
 
 ## 1. System Overview
 

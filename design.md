@@ -1,10 +1,12 @@
 # FFeditor
 
-[requirements](./requirements.md)
+[Requirements](./requirements.md)
 
+```
 project-name: ffeditor
-UI: TUI
-Language: go
+UI:           TUI
+Language:     go
+```
 
 ## Overview
 
