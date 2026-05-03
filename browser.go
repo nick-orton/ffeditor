@@ -33,6 +33,7 @@ type browserModel struct {
 	selected   map[int]bool
 	height     int
 	showHidden bool
+	pendingG   bool
 }
 
 func isSymlinkToDir(entry os.DirEntry, dir string) bool {
@@ -113,14 +114,83 @@ func (m browserModel) scrollDown() browserModel {
 	return m
 }
 
+func (m browserModel) goToFirst() browserModel {
+	m.cursor = 0
+	m.offset = 0
+	return m
+}
+
+func (m browserModel) goToLast() browserModel {
+	if len(m.entries) == 0 {
+		return m
+	}
+	m.cursor = len(m.entries) - 1
+	if m.height > 0 && m.cursor >= m.height {
+		m.offset = m.cursor - m.height + 1
+	}
+	return m
+}
+
+func (m browserModel) pageUp() browserModel {
+	if m.height <= 0 || len(m.entries) == 0 {
+		return m
+	}
+	step := m.height / 2
+	if step < 1 {
+		step = 1
+	}
+	m.cursor -= step
+	if m.cursor < 0 {
+		m.cursor = 0
+	}
+	if m.cursor < m.offset {
+		m.offset = m.cursor
+	}
+	return m
+}
+
+func (m browserModel) pageDown() browserModel {
+	if m.height <= 0 || len(m.entries) == 0 {
+		return m
+	}
+	step := m.height / 2
+	if step < 1 {
+		step = 1
+	}
+	m.cursor += step
+	if m.cursor >= len(m.entries) {
+		m.cursor = len(m.entries) - 1
+	}
+	if m.height > 0 && m.cursor >= m.offset+m.height {
+		m.offset = m.cursor - m.height + 1
+	}
+	return m
+}
+
 func (m browserModel) Update(msg tea.Msg) (browserModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
+		key := msg.String()
+		if m.pendingG {
+			m.pendingG = false
+			if key == "g" {
+				m = m.goToFirst()
+				return m, nil
+			}
+		}
+		switch key {
 		case "j", "down":
 			m = m.scrollDown()
 		case "k", "up":
 			m = m.scrollUp()
+		case "g":
+			m.pendingG = true
+		case "G":
+			m = m.goToLast()
+		case "ctrl+u":
+			m = m.pageUp()
+		case "ctrl+d":
+			m = m.pageDown()
 		case "enter":
 			if len(m.entries) > 0 {
 				entry := m.entries[m.cursor]

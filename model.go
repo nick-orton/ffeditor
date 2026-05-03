@@ -19,6 +19,7 @@ const (
 	modeCommand
 	modeTag
 	modeTagSaving
+	modeHelp
 )
 
 type spinnerTickMsg struct{}
@@ -199,6 +200,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m, teaCmd = dispatchCommand(m, "convert", nil)
 				return m, teaCmd
 			}
+			if msg.String() == "?" {
+				m.mode = modeHelp
+				return m, nil
+			}
 			var cmd tea.Cmd
 			m.browser, cmd = m.browser.Update(msg)
 			return m, cmd
@@ -214,6 +219,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 
 		case modeTagSaving:
+			return m, nil
+
+		case modeHelp:
+			m.mode = modeBrowse
 			return m, nil
 
 		case modeCommand:
@@ -320,6 +329,46 @@ func dispatchCommand(m model, cmd string, args []string) (model, tea.Cmd) {
 	}
 }
 
+func helpView(width, height int) string {
+	lines := []string{
+		styleHeader.Width(width).Render(" Keybindings "),
+		"",
+		"  Navigation",
+		"    j / ↓       move down",
+		"    k / ↑       move up",
+		"    gg          go to first entry",
+		"    G           go to last entry",
+		"    ctrl+u      page up",
+		"    ctrl+d      page down",
+		"    l / enter   open directory",
+		"    h           go to parent directory",
+		"",
+		"  Selection",
+		"    space       select/deselect entry",
+		"    i           toggle hidden files",
+		"",
+		"  Commands",
+		"    e           edit tags",
+		"    c           convert file(s)",
+		"    :cd <dir>   change directory",
+		"    q           quit",
+		"",
+		"  Other",
+		"    ?           show this help",
+		"    esc         close help",
+	}
+
+	// Pad to fill height
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+
+	return strings.Join(lines, "\n")
+}
+
 func nextConvert(m model) (model, tea.Cmd) {
 	if m.convertCancelled {
 		m.convertCancel = nil
@@ -358,9 +407,12 @@ func (m model) View() string {
 		browserHeight = 0
 	}
 	var browserView string
-	if m.mode == modeTag || m.mode == modeTagSaving {
+	switch m.mode {
+	case modeTag, modeTagSaving:
 		browserView = m.tagger.View(m.width, browserHeight)
-	} else {
+	case modeHelp:
+		browserView = helpView(m.width, browserHeight)
+	default:
 		browserView = m.browser.View(m.width, browserHeight)
 	}
 

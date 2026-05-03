@@ -61,12 +61,17 @@ commands.go          — command-bar parsing & dispatch
 |---------------|-------------------------------------------------|
 | `↑` / `k`     | Move cursor up                                  |
 | `↓` / `j`     | Move cursor down                                |
+| `gg`          | Go to first entry                               |
+| `G`           | Go to last entry                                |
+| `Ctrl+U`      | Page up (half screen)                           |
+| `Ctrl+D`      | Page down (half screen)                         |
 | `Enter` / `l` | Enter directory or follow symlink to directory  |
 | `h`           | Go to parent directory                          |
 | `i`           | Toggle hidden files (dotfiles)                  |
 | `Space`       | Toggle selection (for bulk ops), advance cursor |
 | `e`           | Edit ID3 tags for selected `.mp3` file(s)       |
 | `c`           | Convert selected audio files to `.mp3`          |
+| `?`           | Show help screen (any key to dismiss)           |
 | `:`           | Focus command bar                               |
 | `Ctrl+C`      | Cancel in-progress conversion (stay in app)     |
 | `q`           | Quit                                            |
@@ -87,6 +92,10 @@ commands.go          — command-bar parsing & dispatch
   directory change.
 - When nothing is explicitly selected, commands operate on the entry
   under the cursor.
+- Vim-style navigation: `gg` / `G` jump to the first/last entry;
+  `Ctrl+U` / `Ctrl+D` scroll half a screen at a time.
+- Press `?` to open an in-app help screen listing all keybindings.
+  Any key dismisses it.
 
 ### 2. Audio Conversion
 

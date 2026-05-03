@@ -44,14 +44,22 @@ directory if none is provided.
 |---------------|-------------------------------------------------|
 | `j` / `↓`     | Move cursor down                                |
 | `k` / `↑`     | Move cursor up                                  |
+| `gg`          | Go to first entry                               |
+| `G`           | Go to last entry                                |
+| `Ctrl+U`      | Page up (half screen)                           |
+| `Ctrl+D`      | Page down (half screen)                         |
 | `l` / `Enter` | Enter directory or follow symlink to directory  |
 | `h`           | Go to parent directory                          |
 | `i`           | Toggle hidden files (dotfiles)                  |
 | `Space`       | Toggle selection (advances cursor)              |
 | `e`           | Edit ID3 tags for selected `.mp3` file(s)       |
 | `c`           | Convert selected audio files to `.mp3`          |
+| `?`           | Show help screen                                |
 | `Ctrl+C`      | Cancel in-progress conversion                   |
 | `q`           | Quit                                            |
+
+Press `?` at any time to open an in-app help screen listing all
+keybindings. Press any key to dismiss it.
 
 ## Command Bar
 
