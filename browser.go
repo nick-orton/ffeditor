@@ -101,6 +101,11 @@ func (m browserModel) Update(msg tea.Msg) (browserModel, tea.Cmd) {
 			if parent != m.dir {
 				return m.changeDir(parent)
 			}
+		case "l":
+			if len(m.entries) > 0 && m.entries[m.cursor].IsDir() {
+				newDir := filepath.Join(m.dir, m.entries[m.cursor].Name())
+				return m.changeDir(newDir)
+			}
 		}
 	}
 	return m, nil

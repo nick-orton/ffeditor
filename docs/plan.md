@@ -68,7 +68,10 @@ type taggerModel  struct{ width int }
 go build -o ffeditor .
 ./ffeditor /path/to/music
 ```
-j/k/arrows move cursor, Enter enters dirs, `h` goes up, header updates path, `q` exits.
+- j/k/arrows move cursor 
+- Enter/`l` navigates to  subdirs
+- `h` goes up header updates path
+- `q` exits.
 
 ### architecture.md Sections
 - §2.1 (startup) 

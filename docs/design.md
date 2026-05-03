@@ -56,15 +56,15 @@ commands.go          — command-bar parsing & dispatch
 
 ### Navigation
 
-| Key       | Action                              |
-|-----------|-------------------------------------|
-| `↑` / `k` | Move cursor up                     |
-| `↓` / `j` | Move cursor down                   |
-| `Enter`   | Open directory / select file        |
-| `h` | Go to parent directory            |
-| `:`       | Focus command bar                   |
-| `q`       | Quit                                |
-| `Space`   | Toggle selection (for bulk ops)     |
+| Key           | Action                              |
+|---------------|-------------------------------------|
+| `↑` / `k`     | Move cursor up                      |
+| `↓` / `j`     | Move cursor down                    |
+| `Enter` / `l` | Open directory / select file        |
+| `h`           | Go to parent directory              |
+| `:`           | Focus command bar                   |
+| `q`           | Quit                                |
+| `Space`       | Toggle selection (for bulk ops)     |
 
 ## Features
 
