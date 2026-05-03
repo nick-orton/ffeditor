@@ -106,6 +106,14 @@ func (m browserModel) Update(msg tea.Msg) (browserModel, tea.Cmd) {
 				newDir := filepath.Join(m.dir, m.entries[m.cursor].Name())
 				return m.changeDir(newDir)
 			}
+		case " ":
+			if len(m.entries) > 0 {
+				m.selected[m.cursor] = !m.selected[m.cursor]
+				if !m.selected[m.cursor] {
+					delete(m.selected, m.cursor)
+				}
+				m = m.scrollDown()
+			}
 		}
 	}
 	return m, nil

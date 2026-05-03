@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -15,12 +17,7 @@ const (
 	modeTag
 )
 
-// Phase 1 stubs — replaced in Phase 2 and Phase 4 respectively.
-type cmdbarModel struct {
-	input  string
-	active bool
-}
-
+// Phase 4 stub — replaced when tagger.go is created.
 type taggerModel struct {
 	width int
 }
@@ -59,18 +56,90 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Browser dir already updated; hook point for future phases.
 
 	case tea.KeyMsg:
-		if msg.String() == "q" {
-			return m, tea.Quit
-		}
 		switch m.mode {
 		case modeBrowse:
+			if msg.String() == "q" {
+				return m, tea.Quit
+			}
+			if msg.String() == ":" {
+				m.mode = modeCommand
+				m.cmdbar.active = true
+				m.cmdbar.input = ""
+				return m, nil
+			}
 			var cmd tea.Cmd
 			m.browser, cmd = m.browser.Update(msg)
+			return m, cmd
+
+		case modeCommand:
+			if msg.String() == "enter" {
+				cmd, args := parseCommand(m.cmdbar.input)
+				m.cmdbar.input = ""
+				m.cmdbar.active = false
+				m.mode = modeBrowse
+				var teaCmd tea.Cmd
+				m, teaCmd = dispatchCommand(m, cmd, args)
+				return m, teaCmd
+			}
+			var cmd tea.Cmd
+			m.cmdbar, cmd = m.cmdbar.Update(msg)
+			if !m.cmdbar.active {
+				m.mode = modeBrowse
+			}
 			return m, cmd
 		}
 	}
 
 	return m, nil
+}
+
+func dispatchCommand(m model, cmd string, args []string) (model, tea.Cmd) {
+	switch cmd {
+	case "":
+		return m, nil
+	case "q":
+		return m, tea.Quit
+	case "cd":
+		var target string
+		if len(args) == 0 {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				m.statusMsg = "Could not determine home directory"
+				m.statusIsError = true
+				return m, nil
+			}
+			target = home
+		} else {
+			arg := args[0]
+			if filepath.IsAbs(arg) {
+				target = arg
+			} else {
+				target = filepath.Join(m.browser.dir, arg)
+			}
+			var err error
+			target, err = filepath.Abs(target)
+			if err != nil {
+				m.statusMsg = "Not a directory: " + args[0]
+				m.statusIsError = true
+				return m, nil
+			}
+		}
+		info, err := os.Stat(target)
+		if err != nil || !info.IsDir() {
+			m.statusMsg = "Not a directory: " + target
+			m.statusIsError = true
+			return m, nil
+		}
+		var teaCmd tea.Cmd
+		m.browser, teaCmd = m.browser.changeDir(target)
+		m.statusMsg = ""
+		m.statusIsError = false
+		return m, teaCmd
+	default:
+		m.statusMsg = "Unknown command: " + cmd
+		m.statusIsError = true
+		return m, nil
+	}
 }
 
 func (m model) View() string {
@@ -90,7 +159,7 @@ func (m model) View() string {
 		statusLine = styleStatusOk.Render(m.statusMsg)
 	}
 
-	cmdBar := styleCmdPrefix.Render("> ")
+	cmdBar := m.cmdbar.View(m.width)
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, browserView, statusLine, cmdBar)
 }
