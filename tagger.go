@@ -112,8 +112,6 @@ func (m taggerModel) Update(msg tea.Msg) (taggerModel, tea.Cmd) {
 		case "shift+tab", "up":
 			m.focusIndex = (m.focusIndex + 5) % 6
 			m.tabMatches = nil
-		case "ctrl+s":
-			return m, m.saveTags()
 		case "esc":
 			return m, func() tea.Msg { return tagCancelledMsg{} }
 		case "backspace":

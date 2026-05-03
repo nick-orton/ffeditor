@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -17,7 +18,18 @@ const (
 	modeBrowse mode = iota
 	modeCommand
 	modeTag
+	modeTagSaving
 )
+
+type spinnerTickMsg struct{}
+
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+func spinnerTick() tea.Cmd {
+	return tea.Tick(100*time.Millisecond, func(time.Time) tea.Msg {
+		return spinnerTickMsg{}
+	})
+}
 
 type model struct {
 	mode            mode
@@ -27,6 +39,7 @@ type model struct {
 	cmdbar          cmdbarModel
 	statusMsg       string
 	statusIsError   bool
+	spinnerFrame    int
 	ffmpegAvailable bool
 	convertQueue      []string
 	convertIndex      int
@@ -115,6 +128,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mode = modeTag
 		return m, nil
 
+	case spinnerTickMsg:
+		if m.mode == modeTagSaving {
+			m.spinnerFrame = (m.spinnerFrame + 1) % len(spinnerFrames)
+			return m, spinnerTick()
+		}
+		return m, nil
+
 	case tagSavedMsg:
 		m.mode = modeBrowse
 		m.statusMsg = "Tags saved"
@@ -184,9 +204,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 
 		case modeTag:
+			if msg.String() == "ctrl+s" {
+				m.mode = modeTagSaving
+				m.spinnerFrame = 0
+				return m, tea.Batch(m.tagger.saveTags(), spinnerTick())
+			}
 			var cmd tea.Cmd
 			m.tagger, cmd = m.tagger.Update(msg)
 			return m, cmd
+
+		case modeTagSaving:
+			return m, nil
 
 		case modeCommand:
 			switch msg.String() {
@@ -330,14 +358,16 @@ func (m model) View() string {
 		browserHeight = 0
 	}
 	var browserView string
-	if m.mode == modeTag {
+	if m.mode == modeTag || m.mode == modeTagSaving {
 		browserView = m.tagger.View(m.width, browserHeight)
 	} else {
 		browserView = m.browser.View(m.width, browserHeight)
 	}
 
 	var statusLine string
-	if m.statusIsError {
+	if m.mode == modeTagSaving {
+		statusLine = styleStatusOk.Render(spinnerFrames[m.spinnerFrame] + " Saving...")
+	} else if m.statusIsError {
 		statusLine = styleStatusErr.Render(m.statusMsg)
 	} else if m.statusMsg != "" {
 		statusLine = styleStatusOk.Render(m.statusMsg)
