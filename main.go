@@ -24,6 +24,12 @@ func main() {
 		}
 	}
 
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		fmt.Fprintf(os.Stderr, "not a directory: %s\n", dir)
+		os.Exit(1)
+	}
+
 	_, ffmpegErr := exec.LookPath("ffmpeg")
 	ffmpegAvailable := ffmpegErr == nil
 

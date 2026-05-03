@@ -11,6 +11,10 @@ import (
 )
 
 type dirChangedMsg struct{ path string }
+type dirReadErrMsg struct {
+	path string
+	err  error
+}
 
 var audioExts = map[string]bool{
 	".mp3": true, ".opus": true, ".m4a": true,
@@ -52,7 +56,12 @@ func sortEntries(entries []os.DirEntry) {
 func (m browserModel) changeDir(dir string) (browserModel, tea.Cmd) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return m, nil
+		m.dir = dir
+		m.entries = nil
+		m.cursor = 0
+		m.offset = 0
+		m.selected = make(map[int]bool)
+		return m, func() tea.Msg { return dirReadErrMsg{dir, err} }
 	}
 	sortEntries(entries)
 	m.dir = dir
