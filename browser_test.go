@@ -216,6 +216,72 @@ func TestFollowSymlinkToDir(t *testing.T) {
 	}
 }
 
+func TestDispatchCommand_EditSynonymForTag(t *testing.T) {
+	dir := t.TempDir()
+	makeMP3(t, dir, "song.mp3")
+
+	m := newModel(dir, false)
+	m.width = 80
+	m.height = 24
+	m.browser.height = 20
+
+	_, teaCmd := dispatchCommand(m, "edit", nil)
+	if teaCmd == nil {
+		t.Fatal("expected a tea.Cmd from edit command")
+	}
+	msg := teaCmd()
+	tagMsg, ok := msg.(execTagMsg)
+	if !ok {
+		t.Fatalf("expected execTagMsg, got %T", msg)
+	}
+	if len(tagMsg.files) != 1 {
+		t.Errorf("expected 1 file, got %d", len(tagMsg.files))
+	}
+}
+
+func TestBrowseModeKey_E_OpensEditor(t *testing.T) {
+	dir := t.TempDir()
+	makeMP3(t, dir, "song.mp3")
+
+	m := newModel(dir, false)
+	m.width = 80
+	m.height = 24
+	m.browser.height = 20
+
+	keyE := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")}
+	result, teaCmd := m.Update(keyE)
+	_ = result
+	if teaCmd == nil {
+		t.Fatal("expected a tea.Cmd from pressing e")
+	}
+	msg := teaCmd()
+	if _, ok := msg.(execTagMsg); !ok {
+		t.Errorf("expected execTagMsg, got %T", msg)
+	}
+}
+
+func TestBrowseModeKey_C_NoFfmpeg(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "song.opus"), nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := newModel(dir, false) // ffmpeg unavailable
+	m.width = 80
+	m.height = 24
+	m.browser.height = 20
+
+	keyC := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")}
+	result, _ := m.Update(keyC)
+	rm, ok := result.(model)
+	if !ok {
+		t.Fatal("expected model")
+	}
+	if !rm.statusIsError {
+		t.Error("expected error status when ffmpeg unavailable")
+	}
+}
+
 func TestScrolling(t *testing.T) {
 	dir := t.TempDir()
 	for i := 0; i < 10; i++ {

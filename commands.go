@@ -9,7 +9,7 @@ import (
 )
 
 // knownCommands is the sorted list of valid command names used for tab completion.
-var knownCommands = []string{"cd", "convert", "q", "tag"}
+var knownCommands = []string{"cd", "convert", "edit", "q", "tag"}
 
 type cmdbarModel struct {
 	input      string
