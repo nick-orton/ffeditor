@@ -65,6 +65,8 @@ commands.go          — command-bar parsing & dispatch
 | `h`           | Go to parent directory                          |
 | `i`           | Toggle hidden files (dotfiles)                  |
 | `Space`       | Toggle selection (for bulk ops), advance cursor |
+| `e`           | Edit ID3 tags for selected `.mp3` file(s)       |
+| `c`           | Convert selected `.opus`/`.m4a` files to `.mp3` |
 | `:`           | Focus command bar                               |
 | `Ctrl+C`      | Cancel in-progress conversion (stay in app)     |
 | `q`           | Quit                                            |
@@ -130,7 +132,8 @@ converted before cancellation are kept.
 
 ### 3. ID3 Tag Editing
 
-Select an `.mp3` file and run `:tag` to enter tag-editing mode.
+Select an `.mp3` file and press `e` (or run `:edit` / `:tag`) to enter
+tag-editing mode.
 
 #### Tag editing view
 
@@ -170,23 +173,26 @@ Select an `.mp3` file and run `:tag` to enter tag-editing mode.
 
 #### Bulk tagging
 
-Multi-select several `.mp3` files, then run `:tag`. All fields start
-blank. Only fields the user fills in are written; blank fields are left
-unchanged on each file. Useful for setting a shared album or artist
-across multiple tracks. The Files box lists all selected filenames. Tab
-completion tokens are drawn from all filenames combined.
+Multi-select several `.mp3` files, then press `e` (or run `:edit`).
+All fields start blank. Only fields the user fills in are written; blank
+fields are left unchanged on each file. Useful for setting a shared
+album or artist across multiple tracks. The Files box lists all selected
+filenames. Tab completion tokens are drawn from all filenames combined.
 
 ## Commands
 
-All commands are entered via the `:` command bar.
+All commands are entered via the `:` command bar. The most common
+operations also have single-key shortcuts usable directly from the
+browser without opening the command bar.
 
-| Command          | Description                                        |
-|------------------|----------------------------------------------------|
-| `:convert`       | Convert selected file(s)/dir(s) from opus/m4a to mp3 |
-| `:tag`           | Open ID3 tag editor for selected mp3 file(s)       |
-| `:cd <path>`     | Change browser to an absolute or relative path     |
-| `:cd`            | Change browser to the user's home directory        |
-| `:q`             | Quit                                               |
+| Key / Command    | Description                                      |
+|------------------|--------------------------------------------------|
+| `e` / `:edit`    | Open ID3 tag editor for selected `.mp3` file(s)  |
+| `c` / `:convert` | Convert selected file(s)/dir(s) to `.mp3`        |
+| `:tag`           | Synonym for `:edit`                              |
+| `:cd <path>`     | Change browser to an absolute or relative path   |
+| `:cd`            | Change browser to the user's home directory      |
+| `:q`             | Quit                                             |
 
 ### Tab completion
 
@@ -201,6 +207,7 @@ accepts the current completion and ends the cycle.
 :c<Tab>   → cd
 :c<Tab>   → convert
 :c<Tab>   → cd        (wraps)
+:e<Tab>   → edit
 ```
 
 **Directory paths** — after `cd` followed by a space, `Tab` completes

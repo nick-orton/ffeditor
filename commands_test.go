@@ -41,3 +41,17 @@ func TestParseCommand_Whitespace(t *testing.T) {
 		t.Errorf("expected 0 args, got %v", args)
 	}
 }
+
+func TestCommandsStartingWith_Edit(t *testing.T) {
+	matches := commandsStartingWith("ed")
+	if len(matches) != 1 || matches[0] != "edit" {
+		t.Errorf("expected [edit], got %v", matches)
+	}
+}
+
+func TestCommandsStartingWith_EditVsEmpty(t *testing.T) {
+	matches := commandsStartingWith("e")
+	if len(matches) != 1 || matches[0] != "edit" {
+		t.Errorf("expected [edit], got %v", matches)
+	}
+}

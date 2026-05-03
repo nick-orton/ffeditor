@@ -40,28 +40,31 @@ directory if none is provided.
 
 ## Navigation
 
-| Key | Action |
-|-----|--------|
-| `j` / `↓` | Move cursor down |
-| `k` / `↑` | Move cursor up |
-| `l` / `Enter` | Enter directory or follow symlink to directory |
-| `h` | Go to parent directory |
-| `i` | Toggle hidden files (dotfiles) |
-| `Space` | Toggle selection (advances cursor) |
-| `Ctrl+C` | Cancel in-progress conversion |
-| `q` | Quit |
+| Key           | Action                                          |
+|---------------|-------------------------------------------------|
+| `j` / `↓`     | Move cursor down                                |
+| `k` / `↑`     | Move cursor up                                  |
+| `l` / `Enter` | Enter directory or follow symlink to directory  |
+| `h`           | Go to parent directory                          |
+| `i`           | Toggle hidden files (dotfiles)                  |
+| `Space`       | Toggle selection (advances cursor)              |
+| `e`           | Edit ID3 tags for selected `.mp3` file(s)       |
+| `c`           | Convert selected `.opus`/`.m4a` files to `.mp3` |
+| `Ctrl+C`      | Cancel in-progress conversion                   |
+| `q`           | Quit                                            |
 
 ## Command Bar
 
 Press `:` to open the command bar. Type a command and press `Enter` to
 execute, or `Esc` to cancel.
 
-| Command | Description |
-|---------|-------------|
-| `:convert` | Convert selected `.opus`/`.m4a` files to `.mp3` |
-| `:tag` | Edit ID3 tags for selected `.mp3` file(s) |
-| `:cd <path>` | Navigate to a directory |
-| `:q` | Quit |
+| Command      | Description                                      |
+|--------------|--------------------------------------------------|
+| `:edit`      | Edit ID3 tags for selected `.mp3` file(s)        |
+| `:tag`       | Synonym for `:edit`                              |
+| `:convert`   | Convert selected `.opus`/`.m4a` files to `.mp3`  |
+| `:cd <path>` | Navigate to a directory                          |
+| `:q`         | Quit                                             |
 
 ### Tab completion
 
@@ -74,6 +77,7 @@ through matching commands alphabetically:
 :c<Tab>      → :cd
 :c<Tab>      → :convert
 :c<Tab>      → :cd          (wraps around)
+:e<Tab>      → :edit
 ```
 
 Any other keystroke accepts the current completion and ends the cycle.
@@ -112,7 +116,8 @@ the originals. Source files are not deleted.
 
 ## ID3 Tag Editing
 
-Select one or more `.mp3` files and run `:tag` to open the tag editor.
+Select one or more `.mp3` files and press `e` (or run `:edit` / `:tag`)
+to open the tag editor.
 
 ```text
 ╭─ Files ───────────────────────────────╮
@@ -143,7 +148,7 @@ Select one or more `.mp3` files and run `:tag` to open the tag editor.
 `Tab` while typing a word completes it from matching tokens; repeated
 `Tab` presses cycle through all matches.
 
-**Bulk tagging**: select multiple `.mp3` files before running `:tag`.
+**Bulk tagging**: select multiple `.mp3` files before running `:edit`.
 All fields start blank. Only fields you fill in are written — blank
 fields are left unchanged on every file. Useful for stamping a shared
 Artist or Album across a whole album at once.

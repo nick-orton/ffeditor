@@ -169,6 +169,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cmdbar.input = ""
 				return m, nil
 			}
+			if msg.String() == "e" {
+				var teaCmd tea.Cmd
+				m, teaCmd = dispatchCommand(m, "edit", nil)
+				return m, teaCmd
+			}
+			if msg.String() == "c" {
+				var teaCmd tea.Cmd
+				m, teaCmd = dispatchCommand(m, "convert", nil)
+				return m, teaCmd
+			}
 			var cmd tea.Cmd
 			m.browser, cmd = m.browser.Update(msg)
 			return m, cmd
@@ -261,7 +271,7 @@ func dispatchCommand(m model, cmd string, args []string) (model, tea.Cmd) {
 			return m, nil
 		}
 		return m, func() tea.Msg { return execConvertMsg{files} }
-	case "tag":
+	case "tag", "edit":
 		entries := m.browser.selectedEntries()
 		var mp3s []string
 		for _, e := range entries {
