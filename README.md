@@ -44,6 +44,7 @@ Press `:` to open the command bar. Type a command and press `Enter` to execute, 
 | Command | Description |
 |---------|-------------|
 | `:convert` | Convert selected `.opus`/`.m4a` files to `.mp3` |
+| `:tag` | Edit ID3 tags for selected `.mp3` file(s) |
 | `:cd <path>` | Navigate to a directory |
 | `:q` | Quit |
 
@@ -82,3 +83,41 @@ Select one or more `.opus` or `.m4a` files (or a directory containing them) and 
 - **Skip**: files that already have a corresponding `.mp3` are skipped automatically.
 - **Cancel**: press `Ctrl+C` during a conversion to kill the current ffmpeg process and stop the queue. Files already converted are kept. The browser returns to normal immediately.
 - **No ffmpeg**: if `ffmpeg` is not found on `$PATH`, the app opens normally and `:convert` shows an error in the status bar.
+
+## ID3 Tag Editing
+
+Select one or more `.mp3` files and run `:tag` to open the tag editor.
+
+```
+╭─ Files ───────────────────────────────╮
+│ track01.mp3                           │
+╰───────────────────────────────────────╯
+
+╭─ Tags ────────────────────────────────╮
+│     Title: Some Song▌                 │
+│    Artist: Some Artist                │
+│     Album: Some Album                 │
+│      Year: 2024                       │
+│     Track: 1                          │
+│     Genre: Rock                       │
+╰───────────────────────────────────────╯
+
+  Up/Down: navigate   Tab: complete   Ctrl+S: save   Esc: cancel
+```
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Move between fields |
+| `Tab` | Complete current word from filename tokens (cycles through matches) |
+| `Ctrl+S` | Save changes and return to browser |
+| `Esc` | Discard changes and return to browser |
+
+**Tab completion** splits the filename on non-alphanumeric characters
+(underscores, hyphens, spaces, etc.) to build a token list. Pressing `Tab`
+while typing a word completes it from matching tokens; repeated `Tab` presses
+cycle through all matches.
+
+**Bulk tagging**: select multiple `.mp3` files before running `:tag`. All
+fields start blank. Only fields you fill in are written — blank fields are left
+unchanged on every file. Useful for stamping a shared Artist or Album across a
+whole album at once.

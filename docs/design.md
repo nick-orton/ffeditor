@@ -121,23 +121,32 @@ Select an `.mp3` file and run `:tag` to enter tag-editing mode.
 #### Tag editing view
 
 ```
-┌─────────────────────────────────────────────┐
-│  Editing tags: song.mp3                     │
-├─────────────────────────────────────────────┤
-│  Title:   My Song                           │
-│  Artist:  Some Artist                       │
-│  Album:   Great Album                       │
-│  Year:    2024                              │
-│  Track:   3                                 │
-│  Genre:   Rock                              │
-├─────────────────────────────────────────────┤
-│  Tab: next field  Enter: save  Esc: cancel  │
-└─────────────────────────────────────────────┘
+╭─ Files ─────────────────────────────────────╮
+│ song.mp3                                    │
+╰─────────────────────────────────────────────╯
+
+╭─ Tags ──────────────────────────────────────╮
+│     Title: My Song▌                         │
+│    Artist: Some Artist                      │
+│     Album: Great Album                      │
+│      Year: 2024                             │
+│     Track: 3                                │
+│     Genre: Rock                             │
+╰─────────────────────────────────────────────╯
+
+  Up/Down: navigate   Tab: complete   Ctrl+S: save   Esc: cancel
 ```
 
-- Fields are pre-populated with existing tag values.
-- `Tab` / `Shift+Tab` cycles between fields (wraps around).
-- `Enter` writes changed fields back to the file and returns to the browser.
+- The Files box lists the file(s) being edited; the Tags box shows the six
+  editable fields. Both boxes are drawn with rounded borders in the header color.
+- Fields are pre-populated with existing tag values for a single file.
+- `↑` / `↓` moves between fields (wraps around). `Shift+Tab` also moves up.
+- Typing appends to the focused field; `Backspace` deletes the last character.
+- `Tab` completes the current word being typed using tokens extracted from the
+  filename(s). The filename is split on non-alphanumeric characters
+  (spaces, underscores, hyphens, etc.) to produce the token list. Repeated
+  `Tab` presses cycle through all matching tokens; any edit resets the cycle.
+- `Ctrl+S` writes changed fields back to the file and returns to the browser.
 - `Esc` discards changes and returns to the browser.
 
 #### Bulk tagging
@@ -145,6 +154,8 @@ Select an `.mp3` file and run `:tag` to enter tag-editing mode.
 Multi-select several `.mp3` files, then run `:tag`. All fields start blank.
 Only fields the user fills in are written; blank fields are left unchanged on
 each file. Useful for setting a shared album or artist across multiple tracks.
+The Files box lists all selected filenames. Tab completion tokens are drawn
+from all filenames combined.
 
 ## Commands
 

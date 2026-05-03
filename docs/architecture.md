@@ -258,16 +258,21 @@ saturating CPU/disk on large batches.
 **Struct:**
 ```go
 type taggerModel struct {
-    files       []string         // files being edited
-    fields      []tagField       // ordered: title, artist, album, year, track, genre
-    focusIndex  int              // which field has cursor
-    width       int
+    files      []string   // files being edited
+    fields     []tagField // ordered: title, artist, album, year, track, genre
+    focusIndex int        // which field has cursor
+    width      int
+    tokens     []string   // tokens parsed from filename(s) for tab completion
+    tabStem    string     // field value before the word being completed
+    tabPrefix  string     // the word prefix when the tab cycle started
+    tabMatches []string   // candidates for current cycle
+    tabIndex   int        // next index within tabMatches
 }
 
 type tagField struct {
-    label    string              // "Title", "Artist", etc.
-    value    string              // editable text
-    original string              // value loaded from file (for dirty check)
+    label    string // "Title", "Artist", etc.
+    value    string // editable text
+    original string // value loaded from file (for dirty check)
 }
 ```
 
@@ -280,7 +285,6 @@ Pure Go, no CGo dependency. Supports ID3v2.3 and ID3v2.4 frames. Usage:
 tag, _ := id3v2.Open(path, id3v2.Options{Parse: true})
 title := tag.Title()
 artist := tag.Artist()
-// ...
 tag.Close()
 
 // Write
@@ -288,35 +292,83 @@ tag, _ := id3v2.Open(path, id3v2.Options{Parse: true})
 tag.SetTitle("New Title")
 tag.Save()
 tag.Close()
+
+// Track number (TRCK frame — no dedicated method)
+frame := tag.GetLastFrame("TRCK")
+if tf, ok := frame.(id3v2.TextFrame); ok { track = tf.Text }
+tag.DeleteFrames("TRCK")
+tag.AddTextFrame("TRCK", id3v2.EncodingUTF8, value)
 ```
 
 **Single-file flow:**
 1. Open the file, read all six fields into `tagField` structs with `original`
    set.
 2. Render the tag editing view (see design.md layout).
-3. On `Enter`: for each field where `value != original`, write the new value.
+3. On `Ctrl+S`: for each field where `value != original`, write the new value.
    Close the tag handle. Return `tagSavedMsg`.
 4. On `Esc`: discard, return `tagCancelledMsg`.
 
 **Bulk tagging flow:**
 1. All six fields start blank (empty `value` and empty `original`).
-2. On `Enter`: for each selected file, open the tag, and for each field where
+2. On `Ctrl+S`: for each selected file, open the tag, and for each field where
    `value != ""`, overwrite that field. Fields left blank are untouched.
 3. Return `tagBulkSavedMsg{count}`.
 
 **Key handling in tag mode:**
 
-| Key          | Action                              |
-|--------------|-------------------------------------|
-| `Tab`        | `focusIndex = (focusIndex+1) % 6`   |
-| `Shift+Tab`  | `focusIndex = (focusIndex+5) % 6`   |
-| `Enter`      | Save and return to browser          |
-| `Esc`        | Cancel and return to browser        |
-| Printable    | Append to `fields[focusIndex].value`|
-| `Backspace`  | Delete last char from focused field |
+| Key          | Action                                               |
+|--------------|------------------------------------------------------|
+| `↑` / `Shift+Tab` | `focusIndex = (focusIndex+5) % 6` (wrap up)   |
+| `↓`          | `focusIndex = (focusIndex+1) % 6` (wrap down)        |
+| `Tab`        | Complete current word from filename tokens (cycle)   |
+| `Ctrl+S`     | Save and return to browser                           |
+| `Esc`        | Cancel and return to browser                         |
+| Printable    | Append to `fields[focusIndex].value`; resets tab cycle|
+| `Backspace`  | Delete last char from focused field; resets tab cycle|
 
-Each field is rendered as a Lip Gloss-styled text input. The focused field
-gets a highlighted border/underline.
+**Tab completion:**
+
+`tokenizeFilenames(files []string) []string` splits each filename (extension
+stripped) on non-alphanumeric characters and returns a deduplicated token list
+in order of first appearance. For bulk edits, tokens from all filenames are
+combined.
+
+`handleTab()` implements prefix completion on the *current word* (the text
+after the last space in the focused field):
+1. On first `Tab`: split field value into `tabStem` (text up to and including
+   the last space) and `tabPrefix` (the word being typed). Collect all tokens
+   where `strings.HasPrefix(lower(tok), lower(tabPrefix))` into `tabMatches`.
+2. Set `fields[focusIndex].value = tabStem + tabMatches[tabIndex]`, advance
+   `tabIndex` (wrapping).
+3. Subsequent `Tab` presses cycle through `tabMatches`.
+4. Any printable character, `Backspace`, or navigation key resets `tabMatches = nil`.
+
+**View:**
+
+`View(width, height int)` renders two titled rounded boxes (color 62) stacked
+vertically, centered in the available height:
+
+```
+╭─ Files ─────────────────────────────────────╮
+│ song.mp3                                    │
+╰─────────────────────────────────────────────╯
+
+╭─ Tags ──────────────────────────────────────╮
+│     Title: My Song▌                         │
+│    Artist:                                  │
+│     Album:                                  │
+│      Year:                                  │
+│     Track:                                  │
+│     Genre:                                  │
+╰──────────────────────────────��──────────────╯
+
+  Up/Down: navigate   Tab: complete   Ctrl+S: save   Esc: cancel
+```
+
+Boxes are drawn by `titledBox(title, content string, width int) string`, which
+manually constructs the rounded border lines since lipgloss v1.1.0 does not
+expose a border-title API. The focused field's value is rendered with
+`styleTagFocused` (underline) and a `▌` cursor appended.
 
 ### 2.6 `commands.go` — Command Bar
 
