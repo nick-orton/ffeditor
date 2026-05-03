@@ -4,15 +4,15 @@
 
 FFEditor is a terminal UI music manager written in Go using Bubble Tea and 
 Lip Gloss. It lets users browse their filesystem, convert opus/m4a files to mp3
-via ffmpeg, and edit ID3 tags on mp3 files. No source code exists yet — only 
-design documentation. This plan organizes implementation into phases where the 
-app compiles and runs after each one, enabling incremental development.
+via ffmpeg, and edit ID3 tags on mp3 files. This plan organizes implementation 
+into phases where the app compiles and runs after each one, enabling 
+incremental development.
 
 **Canonical design references (must be consulted during each phase):**
-- `architecture.md` — struct layouts, message types, concurrency rules, key 
+- [architecture.md](./architecture.md) — struct layouts, message types, concurrency rules, key 
                     bindings, error handling, styling constants
-- `design.md` — TUI layout, feature descriptions, command table
-- `requirements.md` — high-level project goals
+- [design.md](./design.md) — TUI layout, feature descriptions, command table
+- [requirements.md](./requirements.md) — high-level project goals
 
 ---
 
@@ -71,13 +71,21 @@ go build -o ffeditor .
 j/k/arrows move cursor, Enter enters dirs, `h` goes up, header updates path, `q` exits.
 
 ### architecture.md Sections
-§2.1 (startup), §2.2 (root model + view composition), §2.3 (browser struct, readDir, key table), §6 (styles).
+- §2.1 (startup) 
+- §2.2 (root model + view composition) 
+- §2.3 (browser struct, readDir, key table)
+- §6 (styles).
 
 ---
 
 ## Phase 2 — Command Bar and `:cd` Command
 
-**Goal:** `:` enters command mode, command bar is editable. `:cd <path>` navigates browser. `Esc` cancels. Unknown commands show error. `Space` toggles multi-select.
+**Goal:** 
+- `:` enters command mode, command bar is editable. 
+- `:cd <path>` navigates browser. 
+- `Esc` cancels. 
+- `Space` toggles multi-select.
+- Unknown commands show error. 
 
 ### Files to Create/Modify
 
@@ -99,16 +107,18 @@ j/k/arrows move cursor, Enter enters dirs, `h` goes up, header updates path, `q`
     Space highlights entries.
 
 ### architecture.md Sections
-§2.6 (command bar, parseCommand, dispatch), §2.2 (mode switching, message 
-     routing), §5 (error handling for cd).
+- §2.6 (command bar, parseCommand, dispatch)
+- §2.2 (mode switching, message routing) 
+- §5 (error handling for cd)
 
 ---
 
 ## Phase 3 — Audio Conversion (`:convert`)
 
-**Goal:** `:convert` on selected opus/m4a files/dirs triggers ffmpeg via Bubble 
-        Tea Cmd goroutines. Status shows `Converting N/M...`. Directory 
-        refreshes on completion.
+**Goal:** 
+- `:convert` on selected opus/m4a files/dirs triggers ffmpeg via Bubble
+  Tea Cmd goroutines. 
+- Status shows `Converting N/M...`. Directory refreshes on completion.
 
 ### Files to Create/Modify
 
@@ -135,9 +145,10 @@ Navigate to dir with `.opus`, Space-select, `:convert` Enter → progress in
 status → `.mp3` appears in listing. Without ffmpeg: immediate error status.
 
 ### architecture.md Sections
-§2.4 (converter.go full spec, bulk flow steps 1–6), §3.1 (single-file 
-      conversion flow), §4 (concurrency — Cmds only, no locks), §5 (ffmpeg 
-      error handling).
+- §2.4 (converter.go full spec, bulk flow steps 1–6) 
+- §3.1 (single-file conversion flow) 
+- §4 (concurrency — Cmds only, no locks) 
+- §5 (ffmpeg error handling)
 
 ---
 
@@ -174,8 +185,9 @@ Enter saves. `:tag` on multiple `.mp3`s → blank form, fill one field, Enter
 writes only that field to all files.
 
 ### architecture.md Sections
-§2.5 (full taggerModel spec, id3v2 examples, single vs bulk, key table), §3.2 
-     (bulk tag flow), §6 (styleTagLabel, styleTagFocused).
+- §2.5 (full taggerModel spec, id3v2 examples, single vs bulk, key table) 
+- §3.2 (bulk tag flow)
+- §6 (styleTagLabel, styleTagFocused).
 
 ---
 
@@ -218,9 +230,9 @@ writes only that field to all files.
 - Resize in tag mode → no visual corruption
 
 ### architecture.md Sections
-§5 (full error handling table), 
-§2.3 (hidden files, clamp), 
-§2.2 (WindowSizeMsg propagation).
+- §5 (full error handling table) 
+- §2.3 (hidden files, clamp) 
+- §2.2 (WindowSizeMsg propagation).
 
 ---
 
