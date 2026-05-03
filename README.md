@@ -32,4 +32,30 @@ if none is provided.
 | `k` / `↑` | Move cursor up |
 | `l` / `Enter` | Enter directory |
 | `h` | Go to parent directory |
+| `Space` | Toggle selection (advances cursor) |
 | `q` | Quit |
+
+## Command Bar
+
+Press `:` to open the command bar. Type a command and press `Enter` to execute, or `Esc` to cancel.
+
+| Command | Description |
+|---------|-------------|
+| `:cd <path>` | Navigate to a directory |
+| `:q` | Quit |
+
+### `:cd` path syntax
+
+- `:cd` — go to home directory
+- `:cd ~` or `:cd ~/music` — `~` expands to your home directory
+- `:cd /absolute/path` — absolute path
+- `:cd relative/path` — relative to current directory
+- Symlinks to directories are followed
+
+### Tab completion
+
+While typing a `:cd` command, press `Tab` to complete directory names:
+
+- Completes to the longest common prefix of matching directories
+- Appends `/` when there is exactly one match, so you can keep tabbing deeper
+- Works with absolute paths, relative paths, and `~`
