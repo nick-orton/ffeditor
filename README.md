@@ -49,7 +49,7 @@ directory if none is provided.
 | `i`           | Toggle hidden files (dotfiles)                  |
 | `Space`       | Toggle selection (advances cursor)              |
 | `e`           | Edit ID3 tags for selected `.mp3` file(s)       |
-| `c`           | Convert selected `.opus`/`.m4a` files to `.mp3` |
+| `c`           | Convert selected audio files to `.mp3`          |
 | `Ctrl+C`      | Cancel in-progress conversion                   |
 | `q`           | Quit                                            |
 
@@ -62,7 +62,7 @@ execute, or `Esc` to cancel.
 |--------------|--------------------------------------------------|
 | `:edit`      | Edit ID3 tags for selected `.mp3` file(s)        |
 | `:tag`       | Synonym for `:edit`                              |
-| `:convert`   | Convert selected `.opus`/`.m4a` files to `.mp3`  |
+| `:convert`   | Convert selected audio files to `.mp3`           |
 | `:cd <path>` | Navigate to a directory                          |
 | `:q`         | Quit                                             |
 
@@ -99,7 +99,7 @@ complete directory names:
 
 ## Audio Conversion
 
-Select one or more `.opus` or `.m4a` files (or a directory containing
+Select one or more audio files (or a directory containing
 them) and run `:convert`. Converted `.mp3` files are written alongside
 the originals. Source files are not deleted.
 
@@ -113,6 +113,7 @@ the originals. Source files are not deleted.
   The browser returns to normal immediately.
 - **No ffmpeg**: if `ffmpeg` is not found on `$PATH`, the app opens
   normally and `:convert` shows an error in the status bar.
+- **Supported Formats**: `.opus`, `.m4a`, `.ogg`
 
 ## ID3 Tag Editing
 
