@@ -158,7 +158,25 @@ All commands are entered via the `:` command bar.
 | `:cd`            | Change browser to the user's home directory        |
 | `:q`             | Quit                                               |
 
-Tab completion is available for `:cd`: press `Tab` to expand the partial path.
+### Tab completion
+
+Tab completion works in two contexts:
+
+**Command names** — with a bare word in the command bar, `Tab` cycles through
+matching command names alphabetically. Each successive `Tab` advances to the
+next match; the cycle wraps around. Any other keystroke accepts the current
+completion and ends the cycle.
+
+```
+:c<Tab>   → cd
+:c<Tab>   → convert
+:c<Tab>   → cd        (wraps)
+```
+
+**Directory paths** — after `cd `, `Tab` completes the path argument using the
+longest common prefix of matching subdirectories. If exactly one match exists,
+a trailing `/` is appended so the user can continue tabbing deeper. Works with
+absolute paths, relative paths, and `~`.
 
 ## Error Handling
 
