@@ -1,5 +1,7 @@
 # FFEditor — Technical Architecture
 
+[design](./design.md)
+
 ## 1. System Overview
 
 A terminal-based music collection manager built in Go using Bubble Tea. The

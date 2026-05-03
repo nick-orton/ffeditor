@@ -1,5 +1,7 @@
 # FFeditor
 
+[requirements](./requirements.md)
+
 project-name: ffeditor
 UI: TUI
 Language: go
