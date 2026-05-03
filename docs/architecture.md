@@ -69,28 +69,44 @@ const (
 )
 
 type model struct {
-    mode            mode
-    width, height   int          // terminal dimensions from tea.WindowSizeMsg
-    browser         browserModel
-    tagger          taggerModel
-    cmdbar          cmdbarModel
-    statusMsg       string       // current status bar text
-    statusIsError   bool         // render status in error style
-    ffmpegAvailable bool
+    mode             mode
+    width, height    int             // terminal dimensions from tea.WindowSizeMsg
+    browser          browserModel
+    tagger           taggerModel
+    cmdbar           cmdbarModel
+    statusMsg        string          // current status bar text
+    statusIsError    bool            // render status in error style
+    ffmpegAvailable  bool
+    convertQueue     []string        // files pending conversion
+    convertIndex     int             // index of the file currently being converted
+    convertDone      int             // files successfully converted
+    convertSkipped   int             // files skipped (output already exists)
+    convertErrors    int             // files that failed
+    convertCtx       context.Context // cancelled to kill the active ffmpeg process
+    convertCancel    context.CancelFunc
+    convertCancelled bool            // set when Ctrl+C aborts the queue
 }
 ```
 
 **Message routing rules:**
 
-| `m.mode`      | Key messages routed to | Notes                           |
-|---------------|------------------------|---------------------------------|
-| `modeBrowse`  | `browser`              | `:` switches to `modeCommand`   |
-| `modeCommand` | `cmdbar`               | `Enter` dispatches, `Esc` exits |
-| `modeTag`     | `tagger`               | `Enter` saves, `Esc` cancels    |
+| `m.mode`      | Key messages routed to | Notes                                        |
+|---------------|------------------------|----------------------------------------------|
+| `modeBrowse`  | `browser`              | `:` switches to `modeCommand`; `Ctrl+C` cancels conversion; `q` quits |
+| `modeCommand` | `cmdbar`               | `Enter` dispatches, `Tab` completes, `Esc` exits |
+| `modeTag`     | `tagger`               | `Enter` saves, `Esc` cancels                 |
 
 All modes receive `tea.WindowSizeMsg` for responsive layout. Custom messages
 (conversion progress, completion, errors) are handled at the root level to
 update `statusMsg`.
+
+**`Ctrl+C` handling in `modeBrowse`:**
+- If `convertCancel != nil` (conversion in progress): call `convertCancel()`,
+  set `convertCancelled = true`, set `statusMsg = "Conversion cancelled"`.
+  The app stays open; the in-flight `convertFile` goroutine returns a
+  `convertErrMsg` which `nextConvert` detects via the `convertCancelled` flag
+  and discards without chaining the next file.
+- If no conversion is in progress: no-op (`q` is the quit key).
 
 **View composition:**
 ```
@@ -173,7 +189,7 @@ Bubble Tea `Cmd`s for async execution.
 
 **Core function:**
 ```go
-func convertFile(src, destDir string) tea.Cmd {
+func convertFile(ctx context.Context, src, destDir string) tea.Cmd {
     return func() tea.Msg {
         dest := filepath.Join(destDir,
             strings.TrimSuffix(filepath.Base(src), filepath.Ext(src))+".mp3")
@@ -182,7 +198,7 @@ func convertFile(src, destDir string) tea.Cmd {
             return convertSkippedMsg{src}
         }
 
-        cmd := exec.Command("ffmpeg", "-y", "-i", src,
+        cmd := exec.CommandContext(ctx, "ffmpeg", "-y", "-i", src,
             "-codec:a", "libmp3lame", "-qscale:a", "2", dest)
         cmd.Stdout = nil
         cmd.Stderr = nil
@@ -195,33 +211,44 @@ func convertFile(src, destDir string) tea.Cmd {
 }
 ```
 
+The `context.Context` parameter is used for cancellation: when the context is
+cancelled (e.g. via `Ctrl+C`), `exec.CommandContext` kills the ffmpeg process
+immediately.
+
 **Message types:**
 ```go
-type convertDoneMsg    struct{ src, dest string }
-type convertErrMsg     struct{ src string; err error }
-type convertSkippedMsg struct{ src string }
+type convertDoneMsg     struct{ src, dest string }
+type convertErrMsg      struct{ src string; err error }
+type convertSkippedMsg  struct{ src string }
 type convertProgressMsg struct{ current, total int }
 ```
 
 **Bulk conversion flow:**
 
-1. Root model receives `:convert` command.
-2. Collect target files: if a directory is selected, `filepath.WalkDir` to
-   find all `.opus`/`.m4a` files. If individual files are selected, use those
-   directly. Filter out non-convertible extensions.
-3. Store the file list and a counter in the root model:
+1. Root model receives `execConvertMsg{files}`.
+2. Validate ffmpeg is available and the file list is non-empty.
+3. Create a cancellable context and store it on the model:
    ```go
-   m.convertQueue = files  // []string
-   m.convertIndex = 0
+   ctx, cancel := context.WithCancel(context.Background())
+   m.convertCtx = ctx
+   m.convertCancel = cancel
    ```
-4. Return `convertFile(files[0], dir)` as the first `Cmd`.
-5. On each `convertDoneMsg`/`convertErrMsg`/`convertSkippedMsg`:
-   - Increment `convertIndex`.
-   - Update `statusMsg` to `"Converting 3/17..."`.
-   - If `convertIndex < len(convertQueue)`, return the next `convertFile` Cmd.
-   - Otherwise, set status to `"Conversion complete (17 files, 2 errors)"`.
-6. Re-read the directory listing after conversion completes so new `.mp3`
-   files appear in the browser.
+4. Store the file list and reset counters:
+   ```go
+   m.convertQueue = files
+   m.convertIndex = 0
+   m.convertDone, m.convertSkipped, m.convertErrors = 0, 0, 0
+   ```
+5. Return `convertFile(ctx, files[0], dir)` as the first `Cmd`.
+6. On each `convertDoneMsg`/`convertErrMsg`/`convertSkippedMsg`, increment
+   the relevant counter and call `nextConvert`:
+   - If `convertCancelled`: clean up context, clear the queue, refresh
+     browser dir, return nil (no further Cmds).
+   - If `convertIndex < len(convertQueue)`: update status to
+     `"Converting N/M..."`, return the next `convertFile` Cmd.
+   - Otherwise: call `convertCancel()`, set final status
+     `"Conversion complete (N converted, M skipped, E errors)"`,
+     refresh browser dir.
 
 Conversions run **sequentially** (one ffmpeg process at a time) to avoid
 saturating CPU/disk on large batches.
@@ -296,8 +323,11 @@ gets a highlighted border/underline.
 **Struct:**
 ```go
 type cmdbarModel struct {
-    input    string   // raw text after ":"
-    active   bool     // whether the bar is focused
+    input      string   // raw text after ":"
+    active     bool     // whether the bar is focused
+    tabPrefix  string   // input prefix when the current tab cycle started
+    tabMatches []string // nil when no active tab cycle
+    tabIndex   int      // next index to use within tabMatches
 }
 ```
 
@@ -315,52 +345,87 @@ func parseCommand(input string) (cmd string, args []string) {
 }
 ```
 
-**Dispatch table:**
+**Tab completion:**
 
-| Command    | Validation                                         | Result message         |
-|------------|----------------------------------------------------|------------------------|
-| `convert`  | ffmpegAvailable must be true; selection must contain convertible files | `execConvertMsg{files}` |
-| `tag`      | Selection must contain `.mp3` files                | `execTagMsg{files}`    |
-| `cd`       | `args[1]` must be a valid directory                | `execCdMsg{path}`      |
-| `q`        | —                                                  | `tea.Quit()`           |
+Tab completion is handled by `handleTab(browserDir string) cmdbarModel`, called
+from the root model when `Tab` is pressed in `modeCommand`.
+
+*Command-name cycling* — when the input contains no space (bare word):
+1. On the first `Tab`, record `tabPrefix = input` and collect all entries from
+   `knownCommands` (`"cd"`, `"convert"`, `"q"`, `"tag"`) that start with the
+   prefix, in alphabetical order, into `tabMatches`.
+2. Set `input = tabMatches[tabIndex]` and advance `tabIndex` (wrapping).
+3. Subsequent `Tab` presses cycle through the same `tabMatches` list.
+4. Any non-`Tab` key (printable character, `Backspace`, `Esc`) resets
+   `tabMatches = nil`, ending the cycle.
+
+*Path completion* — when the input starts with `cd ` (has a space):
+- `tabMatches` is cleared and `tabCompletePath` is called, which resolves the
+  partial path argument and completes to the longest common prefix of matching
+  subdirectories. Appends `/` when there is exactly one match. No cycling.
+
+**Dispatch table** (handled in `model.go`'s `dispatchCommand`):
+
+| Command    | Validation                                                          | Behaviour                                      |
+|------------|---------------------------------------------------------------------|------------------------------------------------|
+| `convert`  | `ffmpegAvailable` must be true; selection must contain convertible files | Returns a Cmd emitting `execConvertMsg{files}` |
+| `tag`      | Selection must contain `.mp3` files                                 | Returns a Cmd emitting `execTagMsg{files}`     |
+| `cd`       | Path must resolve to an existing directory                          | Calls `browser.changeDir` directly             |
+| `q`        | —                                                                   | Returns `tea.Quit`                             |
 
 Unknown commands → set `statusMsg` to `"Unknown command: foo"`.
 
-On `Enter`, the command bar parses, dispatches a message, clears `input`,
-sets `active = false`, and returns focus to `modeBrowse`.
+On `Enter`, the command bar parses, dispatches via `dispatchCommand`, clears
+`input`, sets `active = false`, and returns focus to `modeBrowse`.
 
 ## 3. Message Flow Diagrams
 
 ### 3.1 Single File Conversion
 
 ```
-User presses ':'         → mode = modeCommand
-User types 'convert'     → cmdbar.input = "convert"
-User presses Enter       → parseCommand → execConvertMsg{files}
-                          → mode = modeBrowse
-Root.Update receives     → validate ffmpeg, build file list
-  execConvertMsg          → set statusMsg = "Converting 1/1..."
-                          → return convertFile(src, dir) Cmd
-tea runtime calls Cmd    → ffmpeg runs in goroutine
-ffmpeg completes         → convertDoneMsg{src, dest}
-Root.Update receives     → statusMsg = "Conversion complete"
-  convertDoneMsg          → re-read directory → browser.entries updated
+User presses ':'          → mode = modeCommand
+User types 'convert'      → cmdbar.input = "convert"
+User presses Enter        → parseCommand → dispatchCommand
+                           → buildConvertList → execConvertMsg{files} Cmd
+Root.Update receives       → create context/cancel
+  execConvertMsg           → set statusMsg = "Converting 1/1..."
+                           → return convertFile(ctx, src, dir) Cmd
+tea runtime calls Cmd      → ffmpeg runs in goroutine
+ffmpeg completes           → convertDoneMsg{src, dest}
+Root.Update receives       → nextConvert: queue exhausted
+  convertDoneMsg           → statusMsg = "Conversion complete (...)"
+                           → browser.changeDir → entries refreshed
 ```
 
 ### 3.2 Bulk Tag Edit
 
 ```
-User selects files        → Space on each → browser.selected = {0,2,5}
-User presses ':'          → mode = modeCommand
-User types 'tag'          → cmdbar.input = "tag"
-User presses Enter        → execTagMsg{files}
-Root.Update receives      → mode = modeTag
-  execTagMsg               → tagger = newTaggerModel(files) (blank fields)
-User fills in Artist      → tagger.fields[1].value = "New Artist"
-User presses Enter        → write Artist to all 3 files
-                           → tagBulkSavedMsg{3}
-Root.Update receives      → mode = modeBrowse
-  tagBulkSavedMsg          → statusMsg = "Tags updated (3 files)"
+User selects files         → Space on each → browser.selected = {0,2,5}
+User presses ':'           → mode = modeCommand
+User types 'tag'           → cmdbar.input = "tag"
+User presses Enter         → execTagMsg{files}
+Root.Update receives       → mode = modeTag
+  execTagMsg                → tagger = newTaggerModel(files) (blank fields)
+User fills in Artist       → tagger.fields[1].value = "New Artist"
+User presses Enter         → write Artist to all 3 files
+                            → tagBulkSavedMsg{3}
+Root.Update receives       → mode = modeBrowse
+  tagBulkSavedMsg           → statusMsg = "Tags updated (3 files)"
+```
+
+### 3.3 Conversion Cancellation
+
+```
+Conversion in progress     → convertFile goroutine running ffmpeg
+User presses Ctrl+C        → convertCancel() called
+                           → convertCancelled = true
+                           → statusMsg = "Conversion cancelled"
+                           → app stays open (no tea.Quit)
+ffmpeg process killed      → convertFile goroutine returns convertErrMsg
+Root.Update receives       → nextConvert checks convertCancelled == true
+  convertErrMsg            → discards remaining queue
+                           → clears context/cancel/cancelled fields
+                           → browser.changeDir → entries refreshed
 ```
 
 ## 4. Concurrency Model
@@ -376,17 +441,22 @@ sequentially, and no locks are needed on model state.
 - Directory reads (`os.ReadDir`) are fast enough to run synchronously in
   `Update` for typical music directories (< 10k entries).
 - Only one conversion Cmd is in-flight at a time (sequential queue).
+- Cancellation is coordinated via `context.WithCancel`: calling
+  `convertCancel()` causes `exec.CommandContext` to kill the ffmpeg process,
+  and the goroutine returns a `convertErrMsg` which the root model uses to
+  detect the cancellation and stop the queue.
 
 ## 5. Error Handling Strategy
 
-| Error class            | Detection point       | User-facing behavior                    |
-|------------------------|-----------------------|-----------------------------------------|
-| ffmpeg not on PATH     | `main.go` startup     | Status bar warning; `:convert` returns error msg |
-| ffmpeg process failure | `convertFile` Cmd     | `convertErrMsg` → status bar, continue next file |
-| File permission denied | `os.ReadDir`, tag I/O | Status bar error message                |
-| Invalid tag file       | `id3v2.Open`          | Status bar error, return to browser     |
-| Unknown command        | `commands.go` parse   | Status bar: "Unknown command: X"        |
-| cd to non-existent dir | `commands.go` validate| Status bar: "Not a directory: X"        |
+| Error class              | Detection point        | User-facing behavior                                      |
+|--------------------------|------------------------|-----------------------------------------------------------|
+| ffmpeg not on PATH       | `main.go` startup      | `ffmpegAvailable = false`; `:convert` shows error status  |
+| ffmpeg process failure   | `convertFile` Cmd      | `convertErrMsg` → status bar, continue next file          |
+| Conversion cancelled     | `Ctrl+C` in browse mode| ffmpeg killed via context; status "Conversion cancelled"; app stays open |
+| File permission denied   | `os.ReadDir`, tag I/O  | Status bar error message                                  |
+| Invalid tag file         | `id3v2.Open`           | Status bar error, return to browser                       |
+| Unknown command          | `dispatchCommand`      | Status bar: "Unknown command: X"                          |
+| cd to non-existent dir   | `dispatchCommand`      | Status bar: "Not a directory: X"                          |
 
 Errors never cause a panic or program exit. All errors are surfaced through
 `statusMsg` with `statusIsError = true` (rendered in red).
@@ -455,5 +525,5 @@ codebase grows substantially.
 | `converter`  | Integration test with a small `.opus` fixture; verify `.mp3` output exists and is valid audio. Skip if ffmpeg not available (`testing.Short`). |
 | `tagger`     | Unit test: write known tags to a temp `.mp3`, read back, assert equality. Pure Go, no external deps. |
 | `browser`    | Unit test: create a temp directory tree, call `readDir`, assert sort order (dirs first, alpha). |
-| `commands`   | Unit test: `parseCommand` with various inputs, assert command name and args. |
+| `commands`   | Unit test: `parseCommand` with various inputs, assert command name and args. Unit test `handleTab` cycling and reset behaviour. |
 | TUI          | Manual testing. Bubble Tea's `tea.Test` helpers can be used for simple smoke tests (send keys, assert final model state). |

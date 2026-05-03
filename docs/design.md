@@ -20,8 +20,7 @@ metadata — all from within a single interface.
 - **TUI framework:** [Bubble Tea](https://github.com/charmbracelet/bubbletea) 
   (with Lip Gloss for styling)
 - **Audio conversion:** shells out to `ffmpeg` (must be installed on the host)
-- **ID3 tagging:** [go-taglib](https://github.com/nicfit/go-taglib) or 
-  [id3v2](https://github.com/bogem/id3v2) pure-Go library
+- **ID3 tagging:** [bogem/id3v2](https://github.com/bogem/id3v2) pure-Go library
 
 ## Architecture
 
@@ -56,15 +55,16 @@ commands.go          — command-bar parsing & dispatch
 
 ### Navigation
 
-| Key           | Action                              |
-|---------------|-------------------------------------|
-| `↑` / `k`     | Move cursor up                      |
-| `↓` / `j`     | Move cursor down                    |
-| `Enter` / `l` | Open directory / select file        |
-| `h`           | Go to parent directory              |
-| `:`           | Focus command bar                   |
-| `q`           | Quit                                |
-| `Space`       | Toggle selection (for bulk ops)     |
+| Key           | Action                                          |
+|---------------|-------------------------------------------------|
+| `↑` / `k`     | Move cursor up                                  |
+| `↓` / `j`     | Move cursor down                                |
+| `Enter` / `l` | Enter directory                                 |
+| `h`           | Go to parent directory                          |
+| `Space`       | Toggle selection (for bulk ops), advance cursor |
+| `:`           | Focus command bar                               |
+| `Ctrl+C`      | Cancel in-progress conversion (stay in app)     |
+| `q`           | Quit                                            |
 
 ## Features
 
@@ -74,7 +74,9 @@ commands.go          — command-bar parsing & dispatch
 - Directories sort first, then files alphabetically.
 - Audio files (`.mp3`, `.opus`, `.m4a`, `.flac`, `.ogg`) are visually 
   highlighted.
-- Multi-select with `Space` for bulk operations.
+- Hidden files (dot-prefixed) are shown dimmed.
+- Multi-select with `Space` for bulk operations; selection clears on directory change.
+- When nothing is explicitly selected, commands operate on the entry under the cursor.
 
 ### 2. Audio Conversion
 
@@ -82,24 +84,35 @@ Converts `.opus` and `.m4a` files to `.mp3` by shelling out to `ffmpeg`.
 
 #### Single file
 
-Select a file and run `:convert`. The tool executes:
+Place the cursor on a file (or `Space`-select it) and run `:convert`. The tool executes:
 
 ```
-ffmpeg -i input.opus -codec:a libmp3lame -qscale:a 2 output.mp3
+ffmpeg -y -i input.opus -codec:a libmp3lame -qscale:a 2 output.mp3
 ```
 
 - Output file is placed in the same directory with the `.mp3` extension.
-- Source file is kept (not deleted) by default.
-- ID3 tags are preserved/copied when possible (ffmpeg handles this automatically for most metadata).
+- Source file is kept (not deleted).
+- ID3 tags are carried over automatically by ffmpeg where supported.
 
 #### Bulk convert
 
 Select a directory (or multi-select files) and run `:convert`.
 
 - Recursively finds all `.opus` and `.m4a` files in the selection.
-- Converts each file sequentially, showing a progress count in the status bar (e.g., `Converting 3/17...`).
-- Skips files that already have a corresponding `.mp3` sibling.
-- On error, logs the failure to the status bar and continues with the next file.
+- Duplicate paths are deduplicated before conversion begins.
+- Converts each file sequentially (one ffmpeg process at a time), showing a
+  progress count in the status bar: `Converting 3/17...`
+- Skips files that already have a corresponding `.mp3` in the same directory.
+- On error, records the failure and continues with the next file.
+- On completion: `Conversion complete (N converted, M skipped, E errors)`.
+- The browser directory is refreshed automatically when conversion finishes so
+  new `.mp3` files appear immediately.
+
+#### Cancellation
+
+Press `Ctrl+C` during a conversion to kill the current ffmpeg process. The
+application stays open, the status bar shows `Conversion cancelled`, and the
+browser refreshes. Files already converted before cancellation are kept.
 
 ### 3. ID3 Tag Editing
 
@@ -123,35 +136,60 @@ Select an `.mp3` file and run `:tag` to enter tag-editing mode.
 ```
 
 - Fields are pre-populated with existing tag values.
-- `Tab` / `Shift+Tab` cycles between fields.
-- `Enter` writes all fields back to the file.
+- `Tab` / `Shift+Tab` cycles between fields (wraps around).
+- `Enter` writes changed fields back to the file and returns to the browser.
 - `Esc` discards changes and returns to the browser.
 
 #### Bulk tagging
 
-Multi-select several `.mp3` files, then run `:tag`. Only fields the user fills 
-in are written; blank fields are left unchanged on each file. Useful for 
-setting a shared album or artist across multiple tracks.
+Multi-select several `.mp3` files, then run `:tag`. All fields start blank.
+Only fields the user fills in are written; blank fields are left unchanged on
+each file. Useful for setting a shared album or artist across multiple tracks.
 
 ## Commands
 
 All commands are entered via the `:` command bar.
 
-| Command          | Description                                       |
-|------------------|---------------------------------------------------|
-| `:convert`       | Convert selected file(s) from opus/m4a to mp3     |
-| `:tag`           | Open ID3 tag editor for selected mp3 file(s)      |
-| `:cd <path>`     | Change the browser to an absolute or relative path |
+| Command          | Description                                        |
+|------------------|----------------------------------------------------|
+| `:convert`       | Convert selected file(s)/dir(s) from opus/m4a to mp3 |
+| `:tag`           | Open ID3 tag editor for selected mp3 file(s)       |
+| `:cd <path>`     | Change browser to an absolute or relative path     |
+| `:cd`            | Change browser to the user's home directory        |
 | `:q`             | Quit                                               |
+
+### Tab completion
+
+Tab completion works in two contexts:
+
+**Command names** — with a bare word in the command bar, `Tab` cycles through
+matching command names alphabetically. Each successive `Tab` advances to the
+next match; the cycle wraps around. Any other keystroke accepts the current
+completion and ends the cycle.
+
+```
+:c<Tab>   → cd
+:c<Tab>   → convert
+:c<Tab>   → cd        (wraps)
+```
+
+**Directory paths** — after `cd `, `Tab` completes the path argument using the
+longest common prefix of matching subdirectories. If exactly one match exists,
+a trailing `/` is appended so the user can continue tabbing deeper. Works with
+absolute paths, relative paths, and `~`.
 
 ## Error Handling
 
-- If `ffmpeg` is not found on `$PATH`, display an error on startup and disable 
-  conversion commands.
-- Conversion or tagging errors are shown in the status bar; they do not crash 
-  the application.
-- Permission errors (read-only files/directories) are surfaced in the status 
-  bar.
+- If `ffmpeg` is not found on `$PATH`, the TUI opens normally and `:convert`
+  shows an error in the status bar. Other features are unaffected.
+- Conversion errors (e.g. corrupt source file) are shown in the status bar;
+  conversion continues with the next file in the queue.
+- Tagging errors (e.g. unreadable file) are shown in the status bar and return
+  the user to the browser.
+- Permission errors on directory reads are surfaced in the status bar; the
+  browser shows an empty listing and navigation continues to work.
+- Invalid paths supplied to `:cd` show `Not a directory: <path>` in the status bar.
+- Unknown commands show `Unknown command: <name>` in the status bar.
 
 ## Future Considerations (out of scope for v1)
 
