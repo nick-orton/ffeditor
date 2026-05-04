@@ -35,7 +35,7 @@ func claudeGuessTagsCmd(filename string) tea.Cmd {
 		reqBody, err := json.Marshal(map[string]any{
 			"model":      "claude-haiku-4-5-20251001",
 			"max_tokens": 100,
-			"system":     `Extract music metadata from a filename. Reply ONLY with a JSON object with keys "artist", "title", "year". Use empty string if unknown.`,
+			"system":     `Extract music metadata from a filename. Reply ONLY with a JSON object with keys "artist", "title", "year". Use empty string if unknown. Parenthetical text containing words like "mix", "remix", "edit", "version", or "dub" is part of the title, not a separate field.`,
 			"messages": []map[string]string{
 				{"role": "user", "content": filepath.Base(filename)},
 			},
