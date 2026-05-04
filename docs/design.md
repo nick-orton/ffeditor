@@ -23,6 +23,8 @@ formats, and edits ID3 metadata — all from within a single interface.
   the host)
 - **ID3 tagging:** [bogem/id3v2](https://github.com/bogem/id3v2)
   pure-Go library
+- **Smart tag lookup:** Anthropic Messages API (`claude-haiku-4-5`);
+  requires `ANTHROPIC_API_KEY` environment variable
 
 ## Architecture
 
@@ -33,6 +35,7 @@ browser.go           — file-system browser component
 converter.go         — audio conversion logic (ffmpeg wrapper)
 tagger.go            — ID3 tag read/write logic
 commands.go          — command-bar parsing & dispatch
+claude.go            — Anthropic API call for smart tag lookup
 ```
 
 ## TUI Layout
@@ -182,7 +185,8 @@ tag-editing mode.
 │     Genre: Rock                             │
 ╰─────────────────────────────────────────────╯
 
-  Up/Down: navigate   Tab: complete   Ctrl+S: save   Esc: cancel
+  Up/Down: navigate   Tab: complete   Ctrl+T: smart tags
+  Ctrl+S: save   Esc: cancel
 ```
 
 - The Files box lists the file(s) being edited; the Tags box shows the
@@ -198,6 +202,11 @@ tag-editing mode.
   characters (spaces, underscores, hyphens, etc.) to produce the token
   list. Repeated `Tab` presses cycle through all matching tokens; any
   edit resets the cycle.
+- `Ctrl+T` triggers smart tag lookup (single file only): sends the
+  filename to Claude Haiku, which guesses Artist, Title, and Year.
+  Blank fields are pre-filled with the result; non-blank fields are
+  left unchanged. A `Searching...` spinner shows in the status bar
+  while the model processes. Requires `ANTHROPIC_API_KEY`.
 - `Ctrl+S` writes changed fields back to the file and returns to the
   browser.
 - `Esc` discards changes and returns to the browser.
@@ -205,10 +214,14 @@ tag-editing mode.
 #### Bulk tagging
 
 Multi-select several `.mp3` files, then press `e` (or run `:edit`).
-All fields start blank. Only fields the user fills in are written; blank
-fields are left unchanged on each file. Useful for setting a shared
-album or artist across multiple tracks. The Files box lists all selected
-filenames. Tab completion tokens are drawn from all filenames combined.
+Fields shared by every selected file are pre-filled; differing fields
+start blank. Only fields the user fills in are written; blank fields
+are left unchanged on each file. The Title field is disabled in bulk
+mode — it is shown dimmed and cannot receive focus — to prevent
+accidentally overwriting individual track titles. Useful for setting
+a shared album or artist across multiple tracks. The Files box lists
+all selected filenames. Tab completion tokens are drawn from all
+filenames combined.
 
 ## Commands
 

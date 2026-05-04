@@ -8,6 +8,8 @@ terminal.
 
 - Go 1.22 or later
 - `ffmpeg` on `$PATH` (required for audio conversion)
+- `ANTHROPIC_API_KEY` environment variable (required for smart tag
+  lookup)
 
 ## Build
 
@@ -142,13 +144,15 @@ to open the tag editor.
 │     Genre: Rock                       │
 ╰───────────────────────────────────────╯
 
-  Up/Down: navigate   Tab: complete   Ctrl+S: save   Esc: cancel
+  Up/Down: navigate   Tab: complete   Ctrl+T: smart tags
+  Ctrl+S: save   Esc: cancel
 ```
 
 | Key | Action |
 |-----|--------|
 | `↑` / `↓` | Move between fields |
 | `Tab` | Complete current word from filename tokens (cycles) |
+| `Ctrl+T` | Smart tag lookup (single file only) |
 | `Ctrl+S` | Save changes and return to browser |
 | `Esc` | Discard changes and return to browser |
 
@@ -157,7 +161,16 @@ to open the tag editor.
 `Tab` while typing a word completes it from matching tokens; repeated
 `Tab` presses cycle through all matches.
 
+**Smart tag lookup** (`Ctrl+T`, single file only): sends the filename
+to Claude Haiku, which guesses Artist, Title, and Year. Any blank
+fields are pre-filled with the result; non-blank fields are left
+unchanged. A spinner shows in the status bar while the model runs.
+Requires `ANTHROPIC_API_KEY` to be set.
+
 **Bulk tagging**: select multiple `.mp3` files before running `:edit`.
-All fields start blank. Only fields you fill in are written — blank
-fields are left unchanged on every file. Useful for stamping a shared
-Artist or Album across a whole album at once.
+Fields shared by every selected file are pre-filled; differing fields
+start blank. Only fields you fill in are written — blank fields are
+left unchanged on every file. The Title field is disabled in bulk
+mode (shown dimmed) to prevent accidental overwriting of individual
+track titles. Useful for stamping a shared Artist or Album across a
+whole album at once.
