@@ -15,6 +15,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+var claudeAPIURL = "https://api.anthropic.com/v1/messages"
+
 type tagSearchResultMsg struct {
 	artist string
 	title  string
@@ -43,7 +45,7 @@ func claudeGuessTagsCmd(filename string) tea.Cmd {
 		}
 
 		client := &http.Client{Timeout: 15 * time.Second}
-		req, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", bytes.NewReader(reqBody))
+		req, err := http.NewRequest("POST", claudeAPIURL, bytes.NewReader(reqBody))
 		if err != nil {
 			return tagSearchErrMsg{err}
 		}
