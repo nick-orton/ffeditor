@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	id3 "github.com/bogem/id3v2/v2"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -25,9 +26,55 @@ func isAudio(name string) bool {
 	return audioExts[strings.ToLower(filepath.Ext(name))]
 }
 
+type tagSummary struct {
+	artist string
+	title  string
+}
+
+func (t tagSummary) display() string {
+	switch {
+	case t.artist != "" && t.title != "":
+		return t.artist + " · " + t.title
+	case t.artist != "":
+		return t.artist
+	case t.title != "":
+		return t.title
+	}
+	return ""
+}
+
+func readTagSummary(path string) tagSummary {
+	tag, err := id3.Open(path, id3.Options{Parse: true})
+	if err != nil {
+		return tagSummary{}
+	}
+	defer tag.Close()
+	return tagSummary{artist: tag.Artist(), title: tag.Title()}
+}
+
+func loadTagCache(entries []os.DirEntry, dir string) map[string]tagSummary {
+	cache := make(map[string]tagSummary)
+	for _, e := range entries {
+		if !e.IsDir() && strings.ToLower(filepath.Ext(e.Name())) == ".mp3" {
+			cache[e.Name()] = readTagSummary(filepath.Join(dir, e.Name()))
+		}
+	}
+	return cache
+}
+
+// truncateRunes shortens s to at most max visible characters, appending "…".
+func truncateRunes(s string, max int) string {
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return string(runes[:max-1]) + "…"
+}
+
 type browserModel struct {
 	dir        string
 	entries    []os.DirEntry
+	tagCache   map[string]tagSummary
 	cursor     int
 	offset     int
 	selected   map[int]bool
@@ -58,12 +105,14 @@ func newBrowserModel(dir string) browserModel {
 	m := browserModel{
 		dir:      dir,
 		selected: make(map[int]bool),
+		tagCache: make(map[string]tagSummary),
 	}
 	entries, err := os.ReadDir(dir)
 	if err == nil {
 		entries = filterEntries(entries, false)
 		sortEntries(entries)
 		m.entries = entries
+		m.tagCache = loadTagCache(entries, dir)
 	}
 	return m
 }
@@ -79,6 +128,7 @@ func (m browserModel) changeDir(dir string) (browserModel, tea.Cmd) {
 	if err != nil {
 		m.dir = dir
 		m.entries = nil
+		m.tagCache = make(map[string]tagSummary)
 		m.cursor = 0
 		m.offset = 0
 		m.selected = make(map[int]bool)
@@ -88,6 +138,7 @@ func (m browserModel) changeDir(dir string) (browserModel, tea.Cmd) {
 	sortEntries(entries)
 	m.dir = dir
 	m.entries = entries
+	m.tagCache = loadTagCache(entries, dir)
 	m.cursor = 0
 	m.offset = 0
 	m.selected = make(map[int]bool)
@@ -287,7 +338,8 @@ func (m browserModel) View(width, height int) string {
 			styledName = name
 		}
 
-		line := prefix + styledName
+		nameWidth := lipgloss.Width(prefix + styledName)
+		line := prefix + styledName + m.tagColumn(entry.Name(), nameWidth, width)
 		if i == m.cursor {
 			line = styleCursor.Width(width).Render(line)
 		}
@@ -301,4 +353,36 @@ func (m browserModel) View(width, height int) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// tagColumn returns the styled tag info portion of a browser row, padded so
+// that name+tagColumn fills width. Returns "" when the screen is too narrow or
+// the file has no readable tags.
+func (m browserModel) tagColumn(name string, nameWidth, totalWidth int) string {
+	const minGap = 2
+	const minTagWidth = 12
+	available := totalWidth - nameWidth - minGap
+	if available < minTagWidth {
+		return ""
+	}
+	ext := strings.ToLower(filepath.Ext(name))
+	if ext != ".mp3" {
+		return ""
+	}
+	summary, ok := m.tagCache[name]
+	if !ok {
+		return ""
+	}
+	text := summary.display()
+	var styled string
+	if text == "" {
+		styled = styleNoTags.Render("—")
+	} else {
+		styled = styleTagInfo.Render(truncateRunes(text, available))
+	}
+	gap := available - lipgloss.Width(styled)
+	if gap < minGap {
+		gap = minGap
+	}
+	return strings.Repeat(" ", gap) + styled
 }

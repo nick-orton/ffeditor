@@ -41,21 +41,22 @@ claude.go            — Anthropic API call for smart tag lookup
 ## TUI Layout
 
 ```text
-┌─────────────────────────────────────────────┐
-│  FFEditor                  /home/user/Music │  ← header / current path
-├─────────────────────────────────────────────┤
-│  ▸ Albums/                                  │
-│    Tracks/                                  │
-│    cover.jpg                                │
-│    song.opus                                │
-│    demo.m4a                                 │  ← file browser (scrollable)
-│    notes.txt                                │
-│                                             │
-├─────────────────────────────────────────────┤
-│  [status / progress messages]               │  ← status bar
-├─────────────────────────────────────────────┤
-│  > _                                        │  ← command input
-└─────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│  FFEditor                             /home/user/Music       │ ← header
+├──────────────────────────────────────────────────────────────┤
+│  ▸ Albums/                                                   │
+│    Tracks/                                                   │
+│    cover.jpg                                                 │
+│    song.opus                                                 │
+│    demo.m4a                                                  │ ← browser
+│    tagged.mp3          The Beatles · Come Together           │
+│    untagged.mp3        —                                     │
+│    notes.txt                                                 │
+├──────────────────────────────────────────────────────────────┤
+│  [status / progress messages]                                │ ← status
+├──────────────────────────────────────────────────────────────┤
+│  > _                                                         │ ← command
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ### Navigation
@@ -99,6 +100,20 @@ claude.go            — Anthropic API call for smart tag lookup
   `Ctrl+U` / `Ctrl+D` scroll half a screen at a time.
 - Press `?` to open an in-app help screen listing all keybindings.
   Any key dismisses it.
+
+#### Tag summary column
+
+For `.mp3` files, the browser shows a tag summary to the right of each
+filename. The summary displays `Artist · Title`; if only one field is
+present, just that value is shown. Files with no tag data show a dim
+`—` so untagged files are immediately visible. Non-`.mp3` audio files
+and non-audio entries show nothing in this column.
+
+The tag column is hidden automatically when the terminal is too narrow
+to show it without obscuring the filename (minimum 12 characters of
+available space required). Long summaries are truncated with `…`. The
+cache is refreshed whenever the directory changes or tags are saved, so
+the display stays current without a manual reload.
 
 ### 2. Audio Conversion
 
