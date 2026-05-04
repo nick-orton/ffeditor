@@ -21,21 +21,21 @@ and message routing.
                   │  model.go    │
                   │  root model  │
                   │  (router)    │
-                  └──┬───┬───┬─ ─┘
-           ┌─────────┘   │   └─────────┐
-     ┌─────▼──────┐ ┌─────▼─────┐ ┌────▼────────┐
-     │ browser.go │ │ tagger.go │ │commands.go  │
+                  └──┬───┬───┬───┘
+           ┌─────────┘   │   └──────────┐
+     ┌─────▼──────┐ ┌────▼──────┐ ┌─────▼───────┐
+     │ browser.go │ │ tagger.go │ │ commands.go │
      │ file list  │ │ tag editor│ │ cmd bar     │
-     └─────┬──────┘ └─────┬─────┘ └───┬─────────┘
-           │              │           │
-           │        ┌─────▼─────┐     │
-           │        │  id3 lib  │     │
-           │        └───────────┘     │
-           │                          │
-     ┌─────▼──────────────────────────▼──┐
-     │          converter.go             │
-     │     ffmpeg subprocess mgmt        │
-     └───────────────────────────────────┘
+     └─────┬──────┘ └─────┬─────┘ └─────────────┘
+           │              │
+           │        ┌─────▼──────┐   ┌────────────┐
+           │        │  id3 lib   │   │ claude.go  │
+           │        └────────────┘   │ Haiku API  │
+           │                         └────────────┘
+     ┌─────▼───────────────────────┐
+     │        converter.go         │
+     │   ffmpeg subprocess mgmt    │
+     └─────────────────────────────┘
 ```
 
 ## 2. Module Specifications
@@ -71,6 +71,9 @@ const (
     modeBrowse mode = iota
     modeCommand
     modeTag
+    modeTagSaving
+    modeTagSearching
+    modeHelp
 )
 
 type model struct {
@@ -95,11 +98,14 @@ type model struct {
 
 **Message routing rules:**
 
-| `m.mode`      | Routed to | Notes                              |
-|---------------|-----------|------------------------------------|
-| `modeBrowse`  | `browser` | `:` → `modeCommand`; `q` quits     |
-| `modeCommand` | `cmdbar`  | `Enter` dispatches; `Esc` exits    |
-| `modeTag`     | `tagger`  | `Ctrl+S` saves; `Esc` cancels      |
+| `m.mode`           | Routed to | Notes                               |
+|--------------------|-----------|-------------------------------------|
+| `modeBrowse`       | `browser` | `:` → `modeCommand`; `q` quits      |
+| `modeCommand`      | `cmdbar`  | `Enter` dispatches; `Esc` exits     |
+| `modeTag`          | `tagger`  | `Ctrl+T` searches; `Ctrl+S` saves   |
+| `modeTagSaving`    | —         | Input blocked; spinner shown        |
+| `modeTagSearching` | —         | Input blocked; spinner shown        |
+| `modeHelp`         | —         | Any key returns to `modeBrowse`     |
 
 All modes receive `tea.WindowSizeMsg` for responsive layout. Custom
 messages (conversion progress, completion, errors) are handled at the
@@ -118,11 +124,15 @@ root level to update `statusMsg`.
 **View composition:**
 
 ```text
-header      → app title + current path (1 line)
-browser     → height - 4 lines (fills remaining space)
-  OR tagger → same region when mode == modeTag
-status bar  → 1 line
-command bar → 1 line (visible in all modes, editable in modeCommand)
+header          → app title + current path (1 line)
+browser         → height - 4 lines (fills remaining space)
+  OR tagger     → same region when mode ∈ {modeTag, modeTagSaving,
+                  modeTagSearching}
+  OR help       → same region when mode == modeHelp
+status bar      → 1 line (spinner shown during modeTagSaving /
+                  modeTagSearching)
+command bar     → 1 line (visible in all modes, editable in
+                  modeCommand)
 ```
 
 The root `View()` uses Lip Gloss `JoinVertical` to stack these
@@ -342,29 +352,41 @@ tag.AddTextFrame("TRCK", id3v2.EncodingUTF8, value)
 1. Open the file, read all six fields into `tagField` structs with
    `original` set.
 2. Render the tag editing view (see design.md layout).
-3. On `Ctrl+S`: for each field where `value != original`, write the
+3. On `Ctrl+T`: emit `modeTagSearching`; root model dispatches
+   `claudeGuessTagsCmd`. On result, blank fields are pre-filled.
+4. On `Ctrl+S`: for each field where `value != original`, write the
    new value. Close the tag handle. Return `tagSavedMsg`.
-4. On `Esc`: discard, return `tagCancelledMsg`.
+5. On `Esc`: discard, return `tagCancelledMsg`.
 
 **Bulk tagging flow:**
 
-1. All six fields start blank (empty `value` and empty `original`).
-2. On `Ctrl+S`: for each selected file, open the tag, and for each
+1. Read all selected files. For each of the six fields, if every file
+   shares the same non-empty value, pre-fill that field (`value` and
+   `original` both set). Differing fields start blank.
+2. `focusIndex` initialises to 1 (Artist). Title (index 0) is skipped
+   by navigation and rendered with `styleTagDisabled`. This prevents
+   accidental overwriting of individual track titles.
+3. On `Ctrl+S`: for each selected file, open the tag, and for each
    field where `value != ""`, overwrite that field. Fields left blank
    are untouched.
-3. Return `tagBulkSavedMsg{count}`.
+4. Return `tagBulkSavedMsg{count}`.
 
 **Key handling in tag mode:**
 
-| Key               | Action                                      |
-|-------------------|---------------------------------------------|
-| `↑` / `Shift+Tab` | `focusIndex = (focusIndex+5) % 6` (up)     |
-| `↓`               | `focusIndex = (focusIndex+1) % 6` (down)   |
-| `Tab`             | Complete current word from tokens (cycle)   |
-| `Ctrl+S`          | Save and return to browser                  |
-| `Esc`             | Cancel and return to browser                |
-| Printable         | Append to focused field; resets tab cycle   |
-| `Backspace`       | Delete last char; resets tab cycle          |
+| Key               | Action                                          |
+|-------------------|-------------------------------------------------|
+| `↑` / `Shift+Tab` | Move focus up; skips Title in bulk mode         |
+| `↓`               | Move focus down; skips Title in bulk mode       |
+| `Tab`             | Complete current word from tokens (cycle)       |
+| `Ctrl+T`          | Smart tag lookup (single file only)             |
+| `Ctrl+S`          | Save and return to browser                      |
+| `Esc`             | Cancel and return to browser                    |
+| Printable         | Append to focused field; resets tab cycle       |
+| `Backspace`       | Delete last char; resets tab cycle              |
+
+Navigation in bulk mode wraps `focusIndex` around the range 1–5,
+never landing on 0 (Title). Specifically: down from 5 → 1; up from
+1 → 5.
 
 **Tab completion:**
 
@@ -405,14 +427,16 @@ stacked vertically, centered in the available height:
 │     Genre:                                  │
 ╰─────────────────────────────────────────────╯
 
-  Up/Down: navigate   Tab: complete   Ctrl+S: save   Esc: cancel
+  Up/Down: navigate   Tab: complete   Ctrl+T: smart tags
+  Ctrl+S: save   Esc: cancel
 ```
 
 Boxes are drawn by `titledBox(title, content string, width int)
 string`, which manually constructs the rounded border lines since
 lipgloss v1.1.0 does not expose a border-title API. The focused
 field's value is rendered with `styleTagFocused` (underline) and a
-`▌` cursor appended.
+`▌` cursor appended. In bulk mode the Title field value is rendered
+with `styleTagDisabled` (dim, color 240) regardless of focus.
 
 ### 2.6 `commands.go` — Command Bar
 
@@ -482,6 +506,55 @@ On `Enter`, the command bar parses, dispatches via `dispatchCommand`,
 clears `input`, sets `active = false`, and returns focus to
 `modeBrowse`.
 
+### 2.7 `claude.go` — Smart Tag Lookup
+
+This module contains no TUI code. It exposes one `tea.Cmd` factory and
+the two message types it returns.
+
+**Message types:**
+
+```go
+type tagSearchResultMsg struct{ artist, title, year string }
+type tagSearchErrMsg    struct{ err error }
+```
+
+**`claudeGuessTagsCmd(filename string) tea.Cmd`:**
+
+Returns a `tea.Cmd` that runs in a goroutine and:
+
+1. Reads `ANTHROPIC_API_KEY` from the environment. Returns
+   `tagSearchErrMsg` immediately if unset.
+2. Builds a JSON request body for the Anthropic Messages API:
+   - Model: `claude-haiku-4-5-20251001`
+   - `max_tokens`: 100
+   - System prompt instructs the model to reply with only a JSON
+     object `{"artist":"…","title":"…","year":"…"}`, and notes that
+     parenthetical text containing words like "mix", "remix", "edit",
+     "version", or "dub" is part of the title.
+   - User message: `filepath.Base(filename)` (basename only — no
+     path leakage).
+3. POSTs to `claudeAPIURL` (package-level var, default
+   `https://api.anthropic.com/v1/messages`) using `net/http` with a
+   15-second timeout. Headers: `x-api-key`, `anthropic-version:
+   2023-06-01`, `content-type: application/json`.
+4. Parses the Messages API envelope, extracts `content[0].text`.
+5. Finds the first `{` and last `}` in the text and unmarshals that
+   substring — this tolerates prose wrapping the JSON.
+6. Returns `tagSearchResultMsg` or `tagSearchErrMsg`.
+
+The `claudeAPIURL` variable is overridable in tests to point at an
+`httptest.Server`, allowing the full request/response path to be
+exercised without a real API key.
+
+**Root model integration:**
+
+When `Ctrl+T` is pressed in `modeTag` with a single file open, the
+root model transitions to `modeTagSearching`, starts the spinner, and
+dispatches `claudeGuessTagsCmd` as a `tea.Batch` alongside
+`spinnerTick`. On `tagSearchResultMsg`, blank tag fields are
+pre-filled and mode returns to `modeTag`. On `tagSearchErrMsg`, the
+error is shown in the status bar and mode returns to `modeTag`.
+
 ## 3. Message Flow Diagrams
 
 ### 3.1 Single File Conversion
@@ -517,7 +590,24 @@ Root.Update receives       → mode = modeBrowse
   tagBulkSavedMsg          → statusMsg = "Tags updated (3 files)"
 ```
 
-### 3.3 Conversion Cancellation
+### 3.3 Smart Tag Lookup
+
+```text
+User opens single .mp3     → mode = modeTag, fields pre-filled
+User presses Ctrl+T        → mode = modeTagSearching
+                           → spinnerTick + claudeGuessTagsCmd batched
+Spinner ticks              → spinnerFrame advances; "Searching..." shown
+HTTP POST completes        → tagSearchResultMsg{artist, title, year}
+Root.Update receives       → mode = modeTag
+  tagSearchResultMsg       → blank fields pre-filled from result
+                           → non-blank fields left unchanged
+
+  (on network/API error)   → tagSearchErrMsg{err}
+                           → mode = modeTag
+                           → statusMsg = "Smart tag error: …"
+```
+
+### 3.4 Conversion Cancellation
 
 ```text
 Conversion in progress     → convertFile goroutine running ffmpeg
@@ -553,15 +643,17 @@ arrive sequentially, and no locks are needed on model state.
 
 ## 5. Error Handling Strategy
 
-| Error class            | Detection point       | User-facing behavior         |
-|------------------------|-----------------------|------------------------------|
-| ffmpeg not on PATH     | `main.go` startup     | `ffmpegAvailable = false`    |
-| ffmpeg process failure | `convertFile` Cmd     | Status bar; continue queue   |
-| Conversion cancelled   | `Ctrl+C` browse mode  | ffmpeg killed; stays open    |
-| File permission denied | `os.ReadDir`, tag I/O | Status bar error message     |
-| Invalid tag file       | `id3v2.Open`          | Status bar; return to browser|
-| Unknown command        | `dispatchCommand`     | `"Unknown command: X"`       |
-| cd to bad dir          | `dispatchCommand`     | `"Not a directory: X"`       |
+| Error class            | Detection point       | User-facing behavior       |
+|------------------------|-----------------------|----------------------------|
+| ffmpeg not on PATH     | `main.go` startup     | `ffmpegAvailable = false`  |
+| ffmpeg process failure | `convertFile` Cmd     | Status bar; next in queue  |
+| Conversion cancelled   | `Ctrl+C` browse mode  | ffmpeg killed; stays open  |
+| File permission denied | `os.ReadDir`, tag I/O | Status bar error message   |
+| Invalid tag file       | `id3v2.Open`          | Status bar; back to browse |
+| Unknown command        | `dispatchCommand`     | `"Unknown command: X"`     |
+| cd to bad dir          | `dispatchCommand`     | `"Not a directory: X"`     |
+| API key unset          | `claudeGuessTagsCmd`  | `"Smart tag error: …"`     |
+| Anthropic API error    | `claudeGuessTagsCmd`  | `"Smart tag error: …"`     |
 
 Errors never cause a panic or program exit. All errors are surfaced
 through `statusMsg` with `statusIsError = true` (rendered in red).
@@ -572,19 +664,23 @@ All style constants are defined in `styles.go`:
 
 ```go
 var (
-    styleHeader     = lipgloss.NewStyle().Bold(true).Background(lipgloss.Color("62"))
-    styleDir        = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
-    styleAudio      = lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
-    styleSymlink    = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
-    styleCursor     = lipgloss.NewStyle().Background(lipgloss.Color("237"))
-    styleSelected   = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
-    styleStatusOk   = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
-    styleStatusErr  = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
-    styleTagLabel   = lipgloss.NewStyle().Width(10).Align(lipgloss.Right)
-    styleTagFocused = lipgloss.NewStyle().Underline(true)
-    styleCmdPrefix  = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+    styleHeader      = lipgloss.NewStyle().Bold(true).Background(lipgloss.Color("62"))
+    styleDir         = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
+    styleAudio       = lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
+    styleSymlink     = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+    styleCursor      = lipgloss.NewStyle().Background(lipgloss.Color("237"))
+    styleSelected    = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
+    styleStatusOk    = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
+    styleStatusErr   = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
+    styleTagLabel    = lipgloss.NewStyle().Width(10).Align(lipgloss.Right)
+    styleTagFocused  = lipgloss.NewStyle().Underline(true)
+    styleTagDisabled = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+    styleCmdPrefix   = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 )
 ```
+
+`styleTagDisabled` (color 240, dim gray) is applied to the Title field
+in bulk mode to signal that it is read-only.
 
 ## 7. Package & Dependency Layout
 
@@ -598,6 +694,7 @@ ffeditor/
 ├── converter.go
 ├── tagger.go
 ├── commands.go
+├── claude.go
 └── styles.go
 ```
 
@@ -621,6 +718,8 @@ navigation simple. Extracting packages (e.g., `pkg/convert`,
 - Go >= 1.22
 - `ffmpeg` on `$PATH` (optional — app runs without it but disables
   conversion)
+- `ANTHROPIC_API_KEY` environment variable (optional — app runs
+  without it but `Ctrl+T` smart tag lookup will show an error)
 - No CGo required (pure Go ID3 library)
 - Build: `go build -o ffeditor .`
 - Run: `./ffeditor [starting-directory]`
@@ -632,13 +731,23 @@ navigation simple. Extracting packages (e.g., `pkg/convert`,
 | `converter` | Integration test with a small `.opus` fixture;    |
 |             | verify `.mp3` output exists and is valid audio.   |
 |             | Skip if ffmpeg not available (`testing.Short`).   |
-| `tagger`    | Unit test: write known tags to a temp `.mp3`,     |
-|             | read back, assert equality. Pure Go, no deps.     |
+| `tagger`    | Unit tests: tag read/write on a temp `.mp3`;      |
+|             | bulk blank-field skip; shared-tag prefill when    |
+|             | all files agree; blank when files disagree; bulk  |
+|             | `focusIndex` starts at Artist; navigation skips   |
+|             | Title in bulk mode.                               |
 | `browser`   | Unit test: create a temp directory tree, assert   |
 |             | sort order (dirs first, alpha), filter behavior,  |
 |             | symlink navigation, and hidden-file toggle.       |
 | `commands`  | Unit test: `parseCommand` with various inputs,    |
 |             | assert command name and args. Test `handleTab`    |
 |             | cycling and reset behaviour.                      |
+| `claude`    | Unit tests via `httptest.Server`: missing API     |
+|             | key returns `tagSearchErrMsg`; successful         |
+|             | response is parsed into `tagSearchResultMsg`;     |
+|             | JSON embedded in prose is extracted correctly;    |
+|             | non-200 HTTP status returns `tagSearchErrMsg`.    |
+|             | `claudeAPIURL` is a package-level var overridden  |
+|             | in tests to avoid real network calls.             |
 | TUI         | Manual testing. Bubble Tea's `tea.Test` helpers   |
 |             | can be used for simple smoke tests.               |
