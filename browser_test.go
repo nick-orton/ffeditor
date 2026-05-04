@@ -282,6 +282,42 @@ func TestBrowseModeKey_C_NoFfmpeg(t *testing.T) {
 	}
 }
 
+func TestParentNavRestoresCursor(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "subdir")
+	if err := os.MkdirAll(sub, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"a.mp3", "b.mp3"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Start in parent, navigate to subdir (it sorts first as a directory),
+	// then press "h" to go back up.
+	m := newBrowserModel(dir)
+	m.height = 10
+
+	// subdir should be at cursor 0 (dirs sort before files)
+	if m.entries[0].Name() != "subdir" {
+		t.Fatalf("expected subdir at index 0, got %s", m.entries[0].Name())
+	}
+
+	// Enter subdir
+	m, _ = m.changeDir(sub)
+
+	// Go back to parent via "h"
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("h")})
+
+	if m.dir != dir {
+		t.Fatalf("expected to be back in %s, got %s", dir, m.dir)
+	}
+	if m.entries[m.cursor].Name() != "subdir" {
+		t.Errorf("expected cursor on subdir, got %s", m.entries[m.cursor].Name())
+	}
+}
+
 func TestScrolling(t *testing.T) {
 	dir := t.TempDir()
 	for i := 0; i < 10; i++ {

@@ -256,7 +256,18 @@ func (m browserModel) Update(msg tea.Msg) (browserModel, tea.Cmd) {
 		case "h":
 			parent := filepath.Dir(m.dir)
 			if parent != m.dir {
-				return m.changeDir(parent)
+				childName := filepath.Base(m.dir)
+				m, cmd := m.changeDir(parent)
+				for i, e := range m.entries {
+					if e.Name() == childName {
+						m.cursor = i
+						if m.height > 0 && m.cursor >= m.offset+m.height {
+							m.offset = m.cursor - m.height + 1
+						}
+						break
+					}
+				}
+				return m, cmd
 			}
 		case "l":
 			if len(m.entries) > 0 {
