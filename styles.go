@@ -15,4 +15,6 @@ var (
 	styleTagDisabled = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	styleCmdPrefix  = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	styleSymlink    = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+	styleTagInfo    = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	styleNoTags     = lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
 )

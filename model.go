@@ -141,12 +141,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mode = modeBrowse
 		m.statusMsg = "Tags saved"
 		m.statusIsError = false
+		m.browser.tagCache = loadTagCache(m.browser.entries, m.browser.dir)
 		return m, nil
 
 	case tagBulkSavedMsg:
 		m.mode = modeBrowse
 		m.statusMsg = fmt.Sprintf("Tags updated (%d files)", msg.count)
 		m.statusIsError = false
+		m.browser.tagCache = loadTagCache(m.browser.entries, m.browser.dir)
 		return m, nil
 
 	case tagCancelledMsg:
