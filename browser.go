@@ -119,7 +119,11 @@ func newBrowserModel(dir string) browserModel {
 
 func sortEntries(entries []os.DirEntry) {
 	sort.SliceStable(entries, func(i, j int) bool {
-		return entries[i].IsDir() && !entries[j].IsDir()
+		iDir, jDir := entries[i].IsDir(), entries[j].IsDir()
+		if iDir != jDir {
+			return iDir
+		}
+		return strings.ToLower(entries[i].Name()) < strings.ToLower(entries[j].Name())
 	})
 }
 
