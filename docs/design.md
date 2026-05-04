@@ -85,7 +85,8 @@ claude.go            — Anthropic API call for smart tag lookup
 ### 1. File Browser
 
 - Lists files and directories in the current path.
-- Directories sort first, then files alphabetically.
+- Directories sort first, then files alphabetically
+  (case-insensitive).
 - Audio files (`.mp3`, `.opus`, `.m4a`, `.flac`, `.ogg`) are visually
   highlighted.
 - Dotfiles (dot-prefixed names) are hidden by default. Press `i` to
