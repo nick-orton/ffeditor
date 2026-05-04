@@ -19,6 +19,7 @@ const (
 	modeCommand
 	modeTag
 	modeTagSaving
+	modeTagSearching
 	modeHelp
 )
 
@@ -130,7 +131,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case spinnerTickMsg:
-		if m.mode == modeTagSaving {
+		if m.mode == modeTagSaving || m.mode == modeTagSearching {
 			m.spinnerFrame = (m.spinnerFrame + 1) % len(spinnerFrames)
 			return m, spinnerTick()
 		}
@@ -157,6 +158,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tagErrMsg:
 		m.mode = modeBrowse
 		m.statusMsg = "Tag error: " + msg.err.Error()
+		m.statusIsError = true
+		return m, nil
+
+	case tagSearchResultMsg:
+		m.mode = modeTag
+		if m.tagger.fields[0].value == "" {
+			m.tagger.fields[0].value = msg.title
+		}
+		if m.tagger.fields[1].value == "" {
+			m.tagger.fields[1].value = msg.artist
+		}
+		if m.tagger.fields[3].value == "" {
+			m.tagger.fields[3].value = msg.year
+		}
+		return m, nil
+
+	case tagSearchErrMsg:
+		m.mode = modeTag
+		m.statusMsg = "Smart tag error: " + msg.err.Error()
 		m.statusIsError = true
 		return m, nil
 
@@ -209,6 +229,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 
 		case modeTag:
+			if msg.String() == "ctrl+t" && len(m.tagger.files) == 1 {
+				m.mode = modeTagSearching
+				m.spinnerFrame = 0
+				return m, tea.Batch(claudeGuessTagsCmd(m.tagger.files[0]), spinnerTick())
+			}
 			if msg.String() == "ctrl+s" {
 				m.mode = modeTagSaving
 				m.spinnerFrame = 0
@@ -218,7 +243,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.tagger, cmd = m.tagger.Update(msg)
 			return m, cmd
 
-		case modeTagSaving:
+		case modeTagSaving, modeTagSearching:
 			return m, nil
 
 		case modeHelp:
@@ -408,7 +433,7 @@ func (m model) View() string {
 	}
 	var browserView string
 	switch m.mode {
-	case modeTag, modeTagSaving:
+	case modeTag, modeTagSaving, modeTagSearching:
 		browserView = m.tagger.View(m.width, browserHeight)
 	case modeHelp:
 		browserView = helpView(m.width, browserHeight)
@@ -419,6 +444,8 @@ func (m model) View() string {
 	var statusLine string
 	if m.mode == modeTagSaving {
 		statusLine = styleStatusOk.Render(spinnerFrames[m.spinnerFrame] + " Saving...")
+	} else if m.mode == modeTagSearching {
+		statusLine = styleStatusOk.Render(spinnerFrames[m.spinnerFrame] + " Searching...")
 	} else if m.statusIsError {
 		statusLine = styleStatusErr.Render(m.statusMsg)
 	} else if m.statusMsg != "" {

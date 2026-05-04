@@ -68,12 +68,58 @@ func newTaggerModel(files []string) (taggerModel, error) {
 
 		fields[5].value = tag.Genre()
 		fields[5].original = tag.Genre()
+	} else {
+		// Bulk mode: pre-fill fields where all files share the same value.
+		allVals := make([][]string, len(files))
+		for i, file := range files {
+			vals := make([]string, 6)
+			tag, err := id3.Open(file, id3.Options{Parse: true})
+			if err != nil {
+				allVals[i] = vals
+				continue
+			}
+			vals[0] = tag.Title()
+			vals[1] = tag.Artist()
+			vals[2] = tag.Album()
+			vals[3] = tag.Year()
+			if frame := tag.GetLastFrame("TRCK"); frame != nil {
+				if tf, ok := frame.(id3.TextFrame); ok {
+					vals[4] = tf.Text
+				}
+			}
+			vals[5] = tag.Genre()
+			tag.Close()
+			allVals[i] = vals
+		}
+		for fi := range fields {
+			seed := allVals[0][fi]
+			if seed == "" {
+				continue
+			}
+			agree := true
+			for _, vals := range allVals[1:] {
+				if vals[fi] != seed {
+					agree = false
+					break
+				}
+			}
+			if agree {
+				fields[fi].value = seed
+				fields[fi].original = seed
+			}
+		}
+	}
+
+	focusIndex := 0
+	if len(files) > 1 {
+		focusIndex = 1 // Title is not editable in bulk mode
 	}
 
 	return taggerModel{
-		files:  files,
-		fields: fields,
-		tokens: tokenizeFilenames(files),
+		files:      files,
+		fields:     fields,
+		focusIndex: focusIndex,
+		tokens:     tokenizeFilenames(files),
 	}, nil
 }
 
@@ -107,10 +153,18 @@ func (m taggerModel) Update(msg tea.Msg) (taggerModel, tea.Cmd) {
 			m = m.handleTab()
 			return m, nil
 		case "down":
-			m.focusIndex = (m.focusIndex + 1) % 6
+			next := (m.focusIndex + 1) % 6
+			if len(m.files) > 1 && next == 0 {
+				next = 1
+			}
+			m.focusIndex = next
 			m.tabMatches = nil
 		case "shift+tab", "up":
-			m.focusIndex = (m.focusIndex + 5) % 6
+			next := (m.focusIndex + 5) % 6
+			if len(m.files) > 1 && next == 0 {
+				next = 5
+			}
+			m.focusIndex = next
 			m.tabMatches = nil
 		case "esc":
 			return m, func() tea.Msg { return tagCancelledMsg{} }
@@ -260,7 +314,9 @@ func (m taggerModel) View(width, height int) string {
 	for i, f := range m.fields {
 		label := styleTagLabel.Render(f.label + ":")
 		var val string
-		if i == m.focusIndex {
+		if len(m.files) > 1 && i == 0 {
+			val = styleTagDisabled.Render(f.value)
+		} else if i == m.focusIndex {
 			val = styleTagFocused.Render(f.value) + "▌"
 		} else {
 			val = f.value
@@ -270,6 +326,9 @@ func (m taggerModel) View(width, height int) string {
 	tagsBox := titledBox("Tags", strings.Join(fieldLines, "\n"), boxWidth)
 
 	hint := "  Up/Down: navigate   Tab: complete   Ctrl+S: save   Esc: cancel"
+	if len(m.files) == 1 {
+		hint = "  Up/Down: navigate   Tab: complete   Ctrl+T: smart tags   Ctrl+S: save   Esc: cancel"
+	}
 	content := strings.Join([]string{filesBox, "", tagsBox, "", hint}, "\n")
 
 	// Vertically center.
