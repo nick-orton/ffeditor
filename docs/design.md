@@ -99,6 +99,8 @@ claude.go            — Anthropic API call for smart tag lookup
   under the cursor.
 - Vim-style navigation: `gg` / `G` jump to the first/last entry;
   `Ctrl+U` / `Ctrl+D` scroll half a screen at a time.
+- When pressing `h` to go to the parent directory, the cursor is
+  restored to the subdirectory that was just left.
 - Press `?` to open an in-app help screen listing all keybindings.
   Any key dismisses it.
 
