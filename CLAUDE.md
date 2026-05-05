@@ -2,6 +2,13 @@
 
 This file provides guidance to Claude Code when working with this repository.
 
+## SubAgents
+- before beginning a new session, consult the claude-code-guide subagent to 
+  understand where to make changes
+- when making material changes to the codebase consult the 
+  codebase-architect to determine the correct patterns to use.  Have them 
+  review the code as well.
+
 ## Commands
 
 ```bash
