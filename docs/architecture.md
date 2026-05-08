@@ -100,7 +100,7 @@ type model struct {
 
 | `m.mode`           | Routed to | Notes                               |
 |--------------------|-----------|-------------------------------------|
-| `modeBrowse`       | `browser` | `:` → `modeCommand`; `q` quits      |
+| `modeBrowse`       | `browser` | `:` → `modeCommand`; `q` quits; `c` quick-convert; `e` quick-tag |
 | `modeCommand`      | `cmdbar`  | `Enter` dispatches; `Esc` exits     |
 | `modeTag`          | `tagger`  | `Ctrl+T` searches; `Ctrl+S` saves   |
 | `modeTagSaving`    | —         | Input blocked; spinner shown        |
@@ -145,13 +145,15 @@ it can render correctly.
 
 ```go
 type browserModel struct {
-    dir        string        // current absolute directory path
-    entries    []os.DirEntry // current visible listing (filtered)
-    cursor     int           // index of highlighted entry
-    offset     int           // scroll offset for viewport
-    selected   map[int]bool  // indices toggled with Space
-    height     int           // visible rows (set by parent)
-    showHidden bool          // when true, dotfiles are included
+    dir        string                  // current absolute directory path
+    entries    []os.DirEntry           // current visible listing (filtered)
+    tagCache   map[string]tagSummary   // cached Artist/Title for .mp3 files
+    cursor     int                     // index of highlighted entry
+    offset     int                     // scroll offset for viewport
+    selected   map[int]bool            // indices toggled with Space
+    height     int                     // visible rows (set by parent)
+    showHidden bool                    // when true, dotfiles are included
+    pendingG   bool                    // true after first 'g', waiting for 'gg'
 }
 ```
 
@@ -205,14 +207,27 @@ Audio files are rendered with a distinct Lip Gloss style (cyan
 foreground). Directories get a trailing `/` and bold style. Selected
 entries get an inverted/highlighted background.
 
+**Tag summary column:**
+
+`loadTagCache(entries, dir)` reads Artist and Title from every `.mp3`
+in the listing and stores the results in `tagCache`. The cache is built
+on directory load and refreshed after a tag save. In the browser view,
+each `.mp3` row displays `Artist · Title` right-aligned in the
+remaining terminal width (hidden when fewer than 12 chars are
+available; shown as `—` for untagged files).
+
 **Key handling:**
 
 | Key          | Action                                             |
 |--------------|----------------------------------------------------|
 | `j` / `Down` | `cursor++` (clamp to len-1)                        |
 | `k` / `Up`   | `cursor--` (clamp to 0)                            |
+| `gg`         | Go to first entry (`pendingG` flag detects double) |
+| `G`          | Go to last entry                                   |
+| `Ctrl+U`     | Page up (half screen)                              |
+| `Ctrl+D`     | Page down (half screen)                            |
 | `Enter`      | If dir or symlink-to-dir: `cd` in. File: no-op     |
-| `h`          | `cd` to parent (`filepath.Dir(dir)`)               |
+| `h`          | `cd` to parent; cursor placed on child we came from|
 | `l`          | Same as `Enter`                                    |
 | `i`          | Toggle `showHidden`; reload dir via `changeDir`    |
 | `Space`      | Toggle `selected[cursor]`, advance cursor          |
@@ -229,18 +244,28 @@ returns Bubble Tea `Cmd`s for async execution.
 **Core function:**
 
 ```go
-func convertFile(ctx context.Context, src, destDir string) tea.Cmd {
+func convertFile(ctx context.Context, src string) tea.Cmd {
     return func() tea.Msg {
-        dest := filepath.Join(destDir,
-            strings.TrimSuffix(
-                filepath.Base(src), filepath.Ext(src))+".mp3")
+        dest := filepath.Join(filepath.Dir(src),
+            strings.TrimSuffix(filepath.Base(src), filepath.Ext(src))+".mp3")
 
         if _, err := os.Stat(dest); err == nil {
             return convertSkippedMsg{src}
         }
 
-        cmd := exec.CommandContext(ctx, "ffmpeg", "-y", "-i", src,
-            "-codec:a", "libmp3lame", "-qscale:a", "2", dest)
+        // ogg/opus store user tags in stream-level metadata (Vorbis
+        // Comments), so they must be mapped to global output metadata
+        // explicitly. m4a stores tags at the container level, so
+        // -map_metadata 0 suffices.
+        metaArgs := []string{"-map_metadata", "0"}
+        ext := strings.ToLower(filepath.Ext(src))
+        if ext == ".opus" || ext == ".ogg" {
+            metaArgs = []string{"-map_metadata:g", "0:s:0"}
+        }
+
+        args := append([]string{"-y", "-i", src}, metaArgs...)
+        args = append(args, "-codec:a", "libmp3lame", "-qscale:a", "2", dest)
+        cmd := exec.CommandContext(ctx, "ffmpeg", args...)
         cmd.Stdout = nil
         cmd.Stderr = nil
 
@@ -285,7 +310,8 @@ type convertProgressMsg struct{ current, total int }
    m.convertDone, m.convertSkipped, m.convertErrors = 0, 0, 0
    ```
 
-5. Return `convertFile(ctx, files[0], dir)` as the first `Cmd`.
+5. Return `convertFile(ctx, files[0])` as the first `Cmd`. The output
+   `.mp3` is written alongside the source file (same directory).
 6. On each `convertDoneMsg`/`convertErrMsg`/`convertSkippedMsg`,
    increment the relevant counter and call `nextConvert`:
    - If `convertCancelled`: clean up context, clear the queue,
@@ -567,7 +593,7 @@ User presses Enter        → parseCommand → dispatchCommand
                            → buildConvertList → execConvertMsg{files}
 Root.Update receives       → create context/cancel
   execConvertMsg           → set statusMsg = "Converting 1/1..."
-                           → return convertFile(ctx, src, dir) Cmd
+                           → return convertFile(ctx, src) Cmd
 tea runtime calls Cmd      → ffmpeg runs in goroutine
 ffmpeg completes           → convertDoneMsg{src, dest}
 Root.Update receives       → nextConvert: queue exhausted
@@ -691,11 +717,13 @@ ffeditor/
 ├── go.sum
 ├── main.go
 ├── model.go
+├── keys.go                // key event dispatch (handleKeyMsg + per-mode handlers)
 ├── browser.go
 ├── converter.go
 ├── tagger.go
 ├── commands.go
 ├── claude.go
+├── help.go                // help screen view rendering
 └── styles.go
 ```
 

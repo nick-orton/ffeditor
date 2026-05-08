@@ -27,11 +27,13 @@ route them through `model.go`. All styles belong in `styles.go`.
 |-----------------|------------------------------------------------------|
 | `main.go`       | Entry point: arg parsing, ffmpeg probe, program init |
 | `model.go`      | Root Bubble Tea model; mode state machine and router |
+| `keys.go`       | Key event dispatch; per-mode key handler functions   |
 | `browser.go`    | File system browser component                        |
 | `converter.go`  | FFmpeg subprocess wrapper; bulk conversion logic     |
 | `tagger.go`     | ID3 tag editor component (single and bulk)           |
 | `commands.go`   | Command bar component; command parsing and dispatch  |
 | `claude.go`     | Smart tag lookup via the Anthropic Messages API      |
+| `help.go`       | Help screen view rendering                           |
 | `styles.go`     | All Lip Gloss style constants                        |
 
 ## Test Files
@@ -51,8 +53,10 @@ For full detail on each module, see [architecture.md](./architecture.md).
 - **`main.go`** — startup sequence: §2.1
 - **`model.go`** — mode enum, struct, message routing table,
   view composition: §2.2
+- **`keys.go`** — key routing and per-mode handlers: §2.2 (routing
+  table), §2.3–2.6 (per-mode key tables)
 - **`browser.go`** — directory reading, sorting, symlink handling,
-  selection, key bindings: §2.3
+  tag cache, selection, key bindings: §2.3
 - **`converter.go`** — `convertFile` implementation, message types,
   bulk conversion flow, cancellation: §2.4
 - **`tagger.go`** — single-file and bulk tag flows, tab completion,
