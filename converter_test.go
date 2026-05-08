@@ -35,6 +35,16 @@ func TestMain(m *testing.M) {
 			cmd.Stderr = nil
 			_ = cmd.Run()
 		}
+
+		const aacFixture = "testdata/silence.aac"
+		if _, err := os.Stat(aacFixture); os.IsNotExist(err) {
+			cmd := exec.Command("ffmpeg",
+				"-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono",
+				"-t", "0.5", "-c:a", "aac", aacFixture)
+			cmd.Stdout = nil
+			cmd.Stderr = nil
+			_ = cmd.Run()
+		}
 	}
 	os.Exit(m.Run())
 }
@@ -121,6 +131,31 @@ func TestConvertOpusToMp3(t *testing.T) {
 	}
 }
 
+// copyAacFixture copies testdata/silence.aac into dst and returns the new path.
+func copyAacFixture(t *testing.T, dst string) string {
+	t.Helper()
+	if _, err := os.Stat("testdata/silence.aac"); os.IsNotExist(err) {
+		t.Skip("testdata/silence.aac not found")
+	}
+	in, err := os.Open("testdata/silence.aac")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer in.Close()
+
+	dest := filepath.Join(dst, "silence.aac")
+	out, err := os.Create(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, in); err != nil {
+		t.Fatal(err)
+	}
+	return dest
+}
+
 func TestConvertOggToMp3(t *testing.T) {
 	skipIfNoFFmpeg(t)
 
@@ -141,6 +176,28 @@ func TestConvertOggToMp3(t *testing.T) {
 		t.Error("output mp3 is empty")
 	}
 }
+
+func TestConvertAacToMp3(t *testing.T) {
+	skipIfNoFFmpeg(t)
+
+	dir := t.TempDir()
+	src := copyAacFixture(t, dir)
+
+	msg := convertFile(context.Background(), src)()
+	done, ok := msg.(convertDoneMsg)
+	if !ok {
+		t.Fatalf("expected convertDoneMsg, got %T: %v", msg, msg)
+	}
+
+	info, err := os.Stat(done.dest)
+	if err != nil {
+		t.Fatalf("mp3 not found: %v", err)
+	}
+	if info.Size() == 0 {
+		t.Error("output mp3 is empty")
+	}
+}
+
 
 func TestConvertSkipsExisting(t *testing.T) {
 	skipIfNoFFmpeg(t)

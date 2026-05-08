@@ -72,7 +72,7 @@ func cmdConvert(m model, _ []string) (model, tea.Cmd) {
 	entries := m.browser.selectedEntries()
 	files := buildConvertList(entries, m.browser.dir)
 	if len(files) == 0 {
-		m.statusMsg = "No convertible files selected (.opus or .m4a)"
+		m.statusMsg = "No convertible files selected (.opus, .m4a, .ogg, .aac)"
 		m.statusIsError = true
 		return m, nil
 	}

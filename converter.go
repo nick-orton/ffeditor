@@ -20,7 +20,7 @@ type convertSkippedMsg struct{ src string }
 type convertProgressMsg struct{ current, total int }
 
 var convertExts = map[string]bool{
-	".opus": true, ".m4a": true, ".ogg": true,
+	".opus": true, ".m4a": true, ".ogg": true, ".aac": true,
 }
 
 func convertFile(ctx context.Context, src string) tea.Cmd {
