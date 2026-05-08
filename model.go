@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -32,23 +31,28 @@ func spinnerTick() tea.Cmd {
 }
 
 type model struct {
-	mode            mode
-	width, height   int
-	browser         browserModel
-	tagger          taggerModel
-	cmdbar          cmdbarModel
-	statusMsg       string
-	statusIsError   bool
+	mode          mode
+	width, height int
+
+	browser browserModel
+	tagger  taggerModel
+	cmdbar  cmdbarModel
+
+	statusMsg     string
+	statusIsError bool
+
 	spinnerFrame    int
 	ffmpegAvailable bool
-	convertQueue      []string
-	convertIndex      int
-	convertDone       int
-	convertSkipped    int
-	convertErrors     int
-	convertCtx        context.Context
-	convertCancel     context.CancelFunc
-	convertCancelled  bool
+
+	// convert pipeline state
+	convertQueue     []string
+	convertIndex     int
+	convertDone      int
+	convertSkipped   int
+	convertErrors    int
+	convertCtx       context.Context
+	convertCancel    context.CancelFunc
+	convertCancelled bool
 }
 
 func newModel(dir string, ffmpegAvailable bool) model {
@@ -68,53 +72,16 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m2, cmd, ok := handleConvertMsg(m, msg); ok {
+		return m2, cmd
+	}
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 		m.browser.height = m.height - 4
 		m.tagger.width = m.width
-
-	case execConvertMsg:
-		if !m.ffmpegAvailable {
-			m.statusMsg = "ffmpeg not available"
-			m.statusIsError = true
-			return m, nil
-		}
-		if len(msg.files) == 0 {
-			m.statusMsg = "No convertible files selected"
-			m.statusIsError = true
-			return m, nil
-		}
-		m.convertQueue = msg.files
-		m.convertIndex = 0
-		m.convertDone = 0
-		m.convertSkipped = 0
-		m.convertErrors = 0
-		ctx, cancel := context.WithCancel(context.Background())
-		m.convertCtx = ctx
-		m.convertCancel = cancel
-		m.statusMsg = fmt.Sprintf("Converting 1/%d...", len(m.convertQueue))
-		m.statusIsError = false
-		return m, convertFile(m.convertCtx, m.convertQueue[0])
-
-	case convertDoneMsg:
-		m.convertDone++
-		var teaCmd tea.Cmd
-		m, teaCmd = nextConvert(m)
-		return m, teaCmd
-
-	case convertSkippedMsg:
-		m.convertSkipped++
-		var teaCmd tea.Cmd
-		m, teaCmd = nextConvert(m)
-		return m, teaCmd
-
-	case convertErrMsg:
-		m.convertErrors++
-		var teaCmd tea.Cmd
-		m, teaCmd = nextConvert(m)
-		return m, teaCmd
 
 	case execTagMsg:
 		tagger, err := newTaggerModel(msg.files)
@@ -204,75 +171,6 @@ func dispatchCommand(m model, cmd string, args []string) (model, tea.Cmd) {
 		m.statusIsError = true
 	}
 	return m, nil
-}
-
-func helpView(width, height int) string {
-	lines := []string{
-		styleHeader.Width(width).Render(" Keybindings "),
-		"",
-		"  Navigation",
-		"    j / ↓       move down",
-		"    k / ↑       move up",
-		"    gg          go to first entry",
-		"    G           go to last entry",
-		"    ctrl+u      page up",
-		"    ctrl+d      page down",
-		"    l / enter   open directory",
-		"    h           go to parent directory",
-		"",
-		"  Selection",
-		"    space       select/deselect entry",
-		"    i           toggle hidden files",
-		"",
-		"  Commands",
-		"    e           edit tags",
-		"    c           convert file(s)",
-		"    :cd <dir>   change directory",
-		"    q           quit",
-		"",
-		"  Other",
-		"    ?           show this help",
-		"    esc         close help",
-	}
-
-	// Pad to fill height
-	for len(lines) < height {
-		lines = append(lines, "")
-	}
-	if len(lines) > height {
-		lines = lines[:height]
-	}
-
-	return strings.Join(lines, "\n")
-}
-
-func nextConvert(m model) (model, tea.Cmd) {
-	if m.convertCancelled {
-		m.convertCancel = nil
-		m.convertCtx = nil
-		m.convertCancelled = false
-		m.convertQueue = nil
-		var teaCmd tea.Cmd
-		m.browser, teaCmd = m.browser.changeDir(m.browser.dir)
-		return m, teaCmd
-	}
-	m.convertIndex++
-	if m.convertIndex < len(m.convertQueue) {
-		m.statusMsg = fmt.Sprintf("Converting %d/%d...", m.convertIndex+1, len(m.convertQueue))
-		m.statusIsError = false
-		return m, convertFile(m.convertCtx, m.convertQueue[m.convertIndex])
-	}
-	if m.convertCancel != nil {
-		m.convertCancel()
-		m.convertCancel = nil
-		m.convertCtx = nil
-	}
-	m.statusMsg = fmt.Sprintf("Conversion complete (%d converted, %d skipped, %d errors)",
-		m.convertDone, m.convertSkipped, m.convertErrors)
-	m.statusIsError = m.convertErrors > 0
-	var teaCmd tea.Cmd
-	m.browser, teaCmd = m.browser.changeDir(m.browser.dir)
-	return m, teaCmd
 }
 
 func (m model) View() string {
