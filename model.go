@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -198,80 +196,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func dispatchCommand(m model, cmd string, args []string) (model, tea.Cmd) {
-	switch cmd {
-	case "":
-		return m, nil
-	case "q":
-		return m, tea.Quit
-	case "cd":
-		var target string
-		if len(args) == 0 {
-			home, err := os.UserHomeDir()
-			if err != nil {
-				m.statusMsg = "Could not determine home directory"
-				m.statusIsError = true
-				return m, nil
-			}
-			target = home
-		} else {
-			arg := expandTilde(args[0])
-			if filepath.IsAbs(arg) {
-				target = arg
-			} else {
-				target = filepath.Join(m.browser.dir, arg)
-			}
-			var err error
-			target, err = filepath.Abs(target)
-			if err != nil {
-				m.statusMsg = "Not a directory: " + args[0]
-				m.statusIsError = true
-				return m, nil
-			}
-		}
-		info, err := os.Stat(target)
-		if err != nil || !info.IsDir() {
-			m.statusMsg = "Not a directory: " + target
-			m.statusIsError = true
-			return m, nil
-		}
-		var teaCmd tea.Cmd
-		m.browser, teaCmd = m.browser.changeDir(target)
-		m.statusMsg = ""
-		m.statusIsError = false
-		return m, teaCmd
-	case "convert":
-		if !m.ffmpegAvailable {
-			m.statusMsg = "ffmpeg not available — conversion disabled"
-			m.statusIsError = true
-			return m, nil
-		}
-		entries := m.browser.selectedEntries()
-		files := buildConvertList(entries, m.browser.dir)
-		if len(files) == 0 {
-			m.statusMsg = "No convertible files selected (.opus or .m4a)"
-			m.statusIsError = true
-			return m, nil
-		}
-		return m, func() tea.Msg { return execConvertMsg{files} }
-	case "tag", "edit":
-		entries := m.browser.selectedEntries()
-		var mp3s []string
-		for _, e := range entries {
-			if !e.IsDir() && strings.ToLower(filepath.Ext(e.Name())) == ".mp3" {
-				mp3s = append(mp3s, filepath.Join(m.browser.dir, e.Name()))
-			}
-		}
-		if len(mp3s) == 0 {
-			m.statusMsg = "No .mp3 files selected"
-			m.statusIsError = true
-			return m, nil
-		}
-		return m, func() tea.Msg { return execTagMsg{mp3s} }
-	default:
+	if h, ok := commandHandlers[cmd]; ok {
+		return h(m, args)
+	}
+	if cmd != "" {
 		m.statusMsg = "Unknown command: " + cmd
 		m.statusIsError = true
-		return m, nil
 	}
+	return m, nil
 }
 
 func helpView(width, height int) string {
