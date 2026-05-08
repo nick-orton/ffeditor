@@ -182,7 +182,7 @@ type browserModel struct {
 
 **Selection:**
 
-- `Space` toggles `selected[cursor]`.
+- `Space` toggles `selected[cursor]`; `Ctrl+A` selects all entries.
 - Selection is cleared on directory change.
 - `selectedEntries()` returns `[]os.DirEntry` of toggled items. If
   nothing is toggled, returns a slice containing only the cursor entry
@@ -216,6 +216,7 @@ entries get an inverted/highlighted background.
 | `l`          | Same as `Enter`                                    |
 | `i`          | Toggle `showHidden`; reload dir via `changeDir`    |
 | `Space`      | Toggle `selected[cursor]`, advance cursor          |
+| `Ctrl+A`     | Set `selected[i] = true` for all `i` in entries   |
 
 On directory change, emit a custom `dirChangedMsg{path}` so the root
 model can update the header.
