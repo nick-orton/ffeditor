@@ -73,6 +73,7 @@ claude.go            — Anthropic API call for smart tag lookup
 | `h`           | Go to parent directory                          |
 | `i`           | Toggle hidden files (dotfiles)                  |
 | `Space`       | Toggle selection (for bulk ops), advance cursor |
+| `Ctrl+A`      | Select all entries in current directory         |
 | `e`           | Edit ID3 tags for selected `.mp3` file(s)       |
 | `c`           | Convert selected audio files to `.mp3`          |
 | `?`           | Show help screen (any key to dismiss)           |
@@ -93,8 +94,8 @@ claude.go            — Anthropic API call for smart tag lookup
   toggle them on; when visible they render dimmed.
 - Symlinks are shown with a trailing `@` in cyan. Symlinks that point
   to a directory show `@/` and can be entered with `l` or `Enter`.
-- Multi-select with `Space` for bulk operations; selection clears on
-  directory change.
+- Multi-select with `Space` for bulk operations, or `Ctrl+A` to
+  select all entries at once; selection clears on directory change.
 - When nothing is explicitly selected, commands operate on the entry
   under the cursor.
 - Vim-style navigation: `gg` / `G` jump to the first/last entry;

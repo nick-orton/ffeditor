@@ -54,6 +54,7 @@ directory if none is provided.
 | `h`           | Go to parent directory                          |
 | `i`           | Toggle hidden files (dotfiles)                  |
 | `Space`       | Toggle selection (advances cursor)              |
+| `Ctrl+A`      | Select all entries in current directory         |
 | `e`           | Edit ID3 tags for selected `.mp3` file(s)       |
 | `c`           | Convert selected audio files to `.mp3`          |
 | `?`           | Show help screen                                |

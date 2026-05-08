@@ -318,6 +318,26 @@ func TestParentNavRestoresCursor(t *testing.T) {
 	}
 }
 
+func TestSelectAll_SelectsAllEntries(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.mp3", "b.mp3", "c.mp3"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m := newBrowserModel(dir)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlA})
+
+	result := m.selectedEntries()
+	if len(result) != 3 {
+		t.Fatalf("expected 3 entries selected, got %d", len(result))
+	}
+	if result[0].Name() != "a.mp3" || result[1].Name() != "b.mp3" || result[2].Name() != "c.mp3" {
+		t.Errorf("unexpected entry names: %v", result)
+	}
+}
+
 func TestScrolling(t *testing.T) {
 	dir := t.TempDir()
 	for i := 0; i < 10; i++ {

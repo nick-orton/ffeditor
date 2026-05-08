@@ -18,6 +18,7 @@ func helpView(width, height int) string {
 		"",
 		"  Selection",
 		"    space       select/deselect entry",
+		"    ctrl+a      select all entries",
 		"    i           toggle hidden files",
 		"",
 		"  Commands",
