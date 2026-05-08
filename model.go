@@ -98,7 +98,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.convertCancel = cancel
 		m.statusMsg = fmt.Sprintf("Converting 1/%d...", len(m.convertQueue))
 		m.statusIsError = false
-		return m, convertFile(m.convertCtx, m.convertQueue[0], m.browser.dir)
+		return m, convertFile(m.convertCtx, m.convertQueue[0])
 
 	case convertDoneMsg:
 		m.convertDone++
@@ -410,7 +410,7 @@ func nextConvert(m model) (model, tea.Cmd) {
 	if m.convertIndex < len(m.convertQueue) {
 		m.statusMsg = fmt.Sprintf("Converting %d/%d...", m.convertIndex+1, len(m.convertQueue))
 		m.statusIsError = false
-		return m, convertFile(m.convertCtx, m.convertQueue[m.convertIndex], m.browser.dir)
+		return m, convertFile(m.convertCtx, m.convertQueue[m.convertIndex])
 	}
 	if m.convertCancel != nil {
 		m.convertCancel()

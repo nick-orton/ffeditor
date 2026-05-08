@@ -22,9 +22,9 @@ var convertExts = map[string]bool{
 	".opus": true, ".m4a": true, ".ogg": true,
 }
 
-func convertFile(ctx context.Context, src, destDir string) tea.Cmd {
+func convertFile(ctx context.Context, src string) tea.Cmd {
 	return func() tea.Msg {
-		dest := filepath.Join(destDir,
+		dest := filepath.Join(filepath.Dir(src),
 			strings.TrimSuffix(filepath.Base(src), filepath.Ext(src))+".mp3")
 
 		if _, err := os.Stat(dest); err == nil {
