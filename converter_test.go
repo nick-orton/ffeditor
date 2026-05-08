@@ -106,7 +106,7 @@ func TestConvertOpusToMp3(t *testing.T) {
 	dir := t.TempDir()
 	src := copyFixture(t, dir)
 
-	msg := convertFile(context.Background(), src, dir)()
+	msg := convertFile(context.Background(), src)()
 	done, ok := msg.(convertDoneMsg)
 	if !ok {
 		t.Fatalf("expected convertDoneMsg, got %T: %v", msg, msg)
@@ -127,7 +127,7 @@ func TestConvertOggToMp3(t *testing.T) {
 	dir := t.TempDir()
 	src := copyOggFixture(t, dir)
 
-	msg := convertFile(context.Background(), src, dir)()
+	msg := convertFile(context.Background(), src)()
 	done, ok := msg.(convertDoneMsg)
 	if !ok {
 		t.Fatalf("expected convertDoneMsg, got %T: %v", msg, msg)
@@ -148,11 +148,11 @@ func TestConvertSkipsExisting(t *testing.T) {
 	dir := t.TempDir()
 	src := copyFixture(t, dir)
 
-	if _, ok := convertFile(context.Background(), src, dir)().(convertDoneMsg); !ok {
+	if _, ok := convertFile(context.Background(), src)().(convertDoneMsg); !ok {
 		t.Fatal("first convert: expected convertDoneMsg")
 	}
 
-	msg := convertFile(context.Background(), src, dir)()
+	msg := convertFile(context.Background(), src)()
 	if _, ok := msg.(convertSkippedMsg); !ok {
 		t.Fatalf("second convert: expected convertSkippedMsg, got %T", msg)
 	}
@@ -178,7 +178,7 @@ func TestConvertCopiesMetadata(t *testing.T) {
 		t.Fatalf("failed to create tagged opus: %v", err)
 	}
 
-	msg := convertFile(context.Background(), src, dir)()
+	msg := convertFile(context.Background(), src)()
 	done, ok := msg.(convertDoneMsg)
 	if !ok {
 		t.Fatalf("expected convertDoneMsg, got %T: %v", msg, msg)
