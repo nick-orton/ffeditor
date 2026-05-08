@@ -287,6 +287,10 @@ func (m browserModel) Update(msg tea.Msg) (browserModel, tea.Cmd) {
 				}
 				m = m.scrollDown()
 			}
+		case "ctrl+a":
+			for i := range m.entries {
+				m.selected[i] = true
+			}
 		}
 	}
 	return m, nil
