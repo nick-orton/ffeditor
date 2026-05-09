@@ -76,6 +76,7 @@ claude.go            — Anthropic API call for smart tag lookup
 | `Ctrl+A`      | Select all entries in current directory         |
 | `e`           | Edit ID3 tags for selected `.mp3` file(s)       |
 | `c`           | Convert selected audio files to `.mp3`          |
+| `Ctrl+T`      | Fill missing tags (smart tags), no editor       |
 | `?`           | Show help screen (any key to dismiss)           |
 | `:`           | Focus command bar                               |
 | `Ctrl+C`      | Cancel in-progress conversion (stay in app)     |
@@ -241,6 +242,23 @@ accidentally overwriting individual track titles. Useful for setting
 a shared album or artist across multiple tracks. The Files box lists
 all selected filenames. Tab completion tokens are drawn from all
 filenames combined.
+
+### 4. Smart Tags from Browser
+
+Press `Ctrl+T` in the file browser to fill missing ID3 tags for the
+selected `.mp3` file(s) without opening the tag editor. Works on a
+single file (cursor) or any number of space-selected files.
+
+- For each file, the basename is sent to Claude Haiku, which guesses
+  Artist, Title, and Year.
+- Only fields that are currently **empty** are written back. Existing
+  tag values are never overwritten.
+- Files where Artist, Title, and Year are all already set are skipped
+  entirely — no API call is made for them.
+- A `Applying smart tags...` spinner blocks input during the operation.
+- On completion, the status bar shows `Smart tags applied (N files)`
+  and the tag summary column in the browser refreshes automatically.
+- Requires `ANTHROPIC_API_KEY`. Shows an error if unset.
 
 ## Commands
 

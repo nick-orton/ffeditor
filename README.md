@@ -57,6 +57,7 @@ directory if none is provided.
 | `Ctrl+A`      | Select all entries in current directory         |
 | `e`           | Edit ID3 tags for selected `.mp3` file(s)       |
 | `c`           | Convert selected audio files to `.mp3`          |
+| `Ctrl+T`      | Fill missing tags (smart tags) for selected `.mp3` |
 | `?`           | Show help screen                                |
 | `Ctrl+C`      | Cancel in-progress conversion                   |
 | `q`           | Quit                                            |
@@ -175,3 +176,18 @@ left unchanged on every file. The Title field is disabled in bulk
 mode (shown dimmed) to prevent accidental overwriting of individual
 track titles. Useful for stamping a shared Artist or Album across a
 whole album at once.
+
+## Smart Tags from Browser
+
+Press `Ctrl+T` in the file browser to automatically fill missing ID3
+tags for the selected `.mp3` file(s) without opening the tag editor.
+
+- Sends each file's basename to Claude Haiku, which guesses Artist,
+  Title, and Year from the filename.
+- Only **empty** fields are written. Any tag already set on the file
+  is left unchanged.
+- A spinner shows `Applying smart tags...` in the status bar while
+  the API calls run. Input is blocked during this time.
+- On completion: `Smart tags applied (N files)` shown in status bar.
+- Requires `ANTHROPIC_API_KEY` to be set in the environment. An error
+  is shown in the status bar if the key is missing or the API fails.

@@ -18,6 +18,7 @@ const (
 	modeTagSaving
 	modeTagSearching
 	modeHelp
+	modeSmartTagging
 )
 
 type spinnerTickMsg struct{}
@@ -96,7 +97,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case spinnerTickMsg:
-		if m.mode == modeTagSaving || m.mode == modeTagSearching {
+		if m.mode == modeTagSaving || m.mode == modeTagSearching || m.mode == modeSmartTagging {
 			m.spinnerFrame = (m.spinnerFrame + 1) % len(spinnerFrames)
 			return m, spinnerTick()
 		}
@@ -147,6 +148,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusIsError = true
 		return m, nil
 
+	case smartTagDoneMsg:
+		m.mode = modeBrowse
+		m.statusMsg = fmt.Sprintf("Smart tags applied (%d files)", msg.count)
+		m.statusIsError = false
+		m.browser.tagCache = loadTagCache(m.browser.entries, m.browser.dir)
+		return m, nil
+
+	case smartTagErrMsg:
+		m.mode = modeBrowse
+		m.statusMsg = "Smart tag error: " + msg.err.Error()
+		m.statusIsError = true
+		return m, nil
+
 	case dirReadErrMsg:
 		m.statusMsg = "Cannot read directory: " + msg.err.Error()
 		m.statusIsError = true
@@ -190,12 +204,13 @@ func (m model) View() string {
 	default:
 		browserView = m.browser.View(m.width, browserHeight)
 	}
-
 	var statusLine string
 	if m.mode == modeTagSaving {
 		statusLine = styleStatusOk.Render(spinnerFrames[m.spinnerFrame] + " Saving...")
 	} else if m.mode == modeTagSearching {
 		statusLine = styleStatusOk.Render(spinnerFrames[m.spinnerFrame] + " Searching...")
+	} else if m.mode == modeSmartTagging {
+		statusLine = styleStatusOk.Render(spinnerFrames[m.spinnerFrame] + " Applying smart tags...")
 	} else if m.statusIsError {
 		statusLine = styleStatusErr.Render(m.statusMsg)
 	} else if m.statusMsg != "" {

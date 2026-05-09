@@ -24,6 +24,7 @@ func helpView(width, height int) string {
 		"  Commands",
 		"    e           edit tags",
 		"    c           convert file(s)",
+		"    ctrl+t      fill missing tags (smart tags)",
 		"    :cd <dir>   change directory",
 		"    q           quit",
 		"",
