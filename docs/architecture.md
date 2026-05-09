@@ -74,6 +74,7 @@ const (
     modeTagSaving
     modeTagSearching
     modeHelp
+    modeSmartTagging
 )
 
 type model struct {
@@ -98,14 +99,15 @@ type model struct {
 
 **Message routing rules:**
 
-| `m.mode`           | Routed to | Notes                               |
+| `m.mode`           | To        | Notes                               |
 |--------------------|-----------|-------------------------------------|
-| `modeBrowse`       | `browser` | `:` → `modeCommand`; `q` quits; `c` quick-convert; `e` quick-tag |
+| `modeBrowse`       | `browser` | `:` cmd; `q` quit; `c`/`e`/`Ctrl+T` dispatch |
 | `modeCommand`      | `cmdbar`  | `Enter` dispatches; `Esc` exits     |
 | `modeTag`          | `tagger`  | `Ctrl+T` searches; `Ctrl+S` saves   |
 | `modeTagSaving`    | —         | Input blocked; spinner shown        |
 | `modeTagSearching` | —         | Input blocked; spinner shown        |
 | `modeHelp`         | —         | Any key returns to `modeBrowse`     |
+| `modeSmartTagging` | —         | Input blocked; spinner; browser view |
 
 All modes receive `tea.WindowSizeMsg` for responsive layout. Custom
 messages (conversion progress, completion, errors) are handled at the
@@ -129,8 +131,8 @@ browser         → height - 4 lines (fills remaining space)
   OR tagger     → same region when mode ∈ {modeTag, modeTagSaving,
                   modeTagSearching}
   OR help       → same region when mode == modeHelp
-status bar      → 1 line (spinner shown during modeTagSaving /
-                  modeTagSearching)
+status bar      → 1 line (spinner shown during modeTagSaving,
+                  modeTagSearching, modeSmartTagging)
 command bar     → 1 line (visible in all modes, editable in
                   modeCommand)
 ```
@@ -232,6 +234,7 @@ available; shown as `—` for untagged files).
 | `i`          | Toggle `showHidden`; reload dir via `changeDir`    |
 | `Space`      | Toggle `selected[cursor]`, advance cursor          |
 | `Ctrl+A`     | Set `selected[i] = true` for all `i` in entries   |
+| `Ctrl+T`     | Dispatch `smart-tag` command                       |
 
 On directory change, emit a custom `dirChangedMsg{path}` so the root
 model can update the header.
@@ -520,14 +523,40 @@ one match. No cycling.
 
 **Dispatch table** (handled in `model.go`'s `dispatchCommand`):
 
-| Command   | Validation                        | Behaviour                  |
-|-----------|-----------------------------------|----------------------------|
-| `convert` | ffmpeg available; has targets     | Emits `execConvertMsg`     |
-| `tag`     | Selection has `.mp3` files        | Emits `execTagMsg`         |
-| `cd`      | Path is an existing directory     | Calls `browser.changeDir`  |
-| `q`       | —                                 | Returns `tea.Quit`         |
+| Command     | Validation                    | Behaviour                       |
+|-------------|-------------------------------|---------------------------------|
+| `convert`   | ffmpeg available; has targets | Emits `execConvertMsg`          |
+| `tag`       | Selection has `.mp3` files    | Emits `execTagMsg`              |
+| `cd`        | Path is an existing directory | Calls `browser.changeDir`       |
+| `q`         | —                             | Returns `tea.Quit`              |
+| `smart-tag` | Selection has `.mp3` files    | Sets `modeSmartTagging`; Cmd    |
+
+`smart-tag` is key-only (`Ctrl+T` in `modeBrowse`) and is not in
+`knownCommands`, so it does not appear in tab completion.
 
 Unknown commands → set `statusMsg` to `"Unknown command: foo"`.
+
+**Smart tag messages (navigator flow, defined in `commands.go`):**
+
+```go
+type smartTagDoneMsg struct{ count int }
+type smartTagErrMsg  struct{ err error }
+```
+
+**`smartTagCmd(files []string) tea.Cmd`:**
+
+Runs in a goroutine:
+
+1. Checks `ANTHROPIC_API_KEY`; returns `smartTagErrMsg` if unset.
+2. For each file:
+   a. Opens the ID3 tag and reads Title, Artist, Year.
+   b. Skips the file if all three are already non-empty (no API
+      call).
+   c. Calls `callClaudeTagAPI` to guess missing values.
+   d. Opens the file again and writes only the fields that were
+      empty and the API returned a non-empty value for.
+3. Returns `smartTagDoneMsg{count}` where `count` is the number of
+   files that were actually changed.
 
 On `Enter`, the command bar parses, dispatches via `dispatchCommand`,
 clears `input`, sets `active = false`, and returns focus to
@@ -535,52 +564,50 @@ clears `input`, sets `active = false`, and returns focus to
 
 ### 2.7 `claude.go` — Smart Tag Lookup
 
-This module contains no TUI code. It exposes one `tea.Cmd` factory and
-the two message types it returns.
+This module contains no TUI or ID3 code. It exposes the API helper
+and the two `tea.Cmd` factories that call it.
 
-**Message types:**
+**Message types (tag editor flow):**
 
 ```go
 type tagSearchResultMsg struct{ artist, title, year string }
 type tagSearchErrMsg    struct{ err error }
 ```
 
+**`callClaudeTagAPI(apiKey, filename string) (claudeTagResult, error)`:**
+
+Low-level helper shared by both `tea.Cmd` factories:
+
+1. Builds a JSON request body for the Anthropic Messages API:
+   - Model: `claude-haiku-4-5-20251001`; `max_tokens`: 100.
+   - System prompt: reply with only
+     `{"artist":"…","title":"…","year":"…"}`.
+   - User message: `filepath.Base(filename)` (basename only).
+2. POSTs to `claudeAPIURL` (package-level var, default
+   `https://api.anthropic.com/v1/messages`) using `net/http` with
+   a 15-second timeout.
+3. Parses the Messages API envelope; extracts the first `{…}` from
+   `content[0].text` to tolerate prose wrapping.
+4. Returns `claudeTagResult{Artist, Title, Year}` or an error.
+
 **`claudeGuessTagsCmd(filename string) tea.Cmd`:**
 
-Returns a `tea.Cmd` that runs in a goroutine and:
+Thin wrapper: checks `ANTHROPIC_API_KEY`, calls
+`callClaudeTagAPI`, returns `tagSearchResultMsg` or
+`tagSearchErrMsg`. Used by the tag editor (`modeTagSearching`).
 
-1. Reads `ANTHROPIC_API_KEY` from the environment. Returns
-   `tagSearchErrMsg` immediately if unset.
-2. Builds a JSON request body for the Anthropic Messages API:
-   - Model: `claude-haiku-4-5-20251001`
-   - `max_tokens`: 100
-   - System prompt instructs the model to reply with only a JSON
-     object `{"artist":"…","title":"…","year":"…"}`, and notes that
-     parenthetical text containing words like "mix", "remix", "edit",
-     "version", or "dub" is part of the title.
-   - User message: `filepath.Base(filename)` (basename only — no
-     path leakage).
-3. POSTs to `claudeAPIURL` (package-level var, default
-   `https://api.anthropic.com/v1/messages`) using `net/http` with a
-   15-second timeout. Headers: `x-api-key`, `anthropic-version:
-   2023-06-01`, `content-type: application/json`.
-4. Parses the Messages API envelope, extracts `content[0].text`.
-5. Finds the first `{` and last `}` in the text and unmarshals that
-   substring — this tolerates prose wrapping the JSON.
-6. Returns `tagSearchResultMsg` or `tagSearchErrMsg`.
+**Root model integration (tag editor):**
+
+When `Ctrl+T` is pressed in `modeTag` with a single file open, the
+root model transitions to `modeTagSearching`, starts the spinner,
+and dispatches `claudeGuessTagsCmd` as a `tea.Batch` alongside
+`spinnerTick`. On `tagSearchResultMsg`, blank tag fields are
+pre-filled and mode returns to `modeTag`. On `tagSearchErrMsg`, the
+error is shown in the status bar and mode returns to `modeTag`.
 
 The `claudeAPIURL` variable is overridable in tests to point at an
 `httptest.Server`, allowing the full request/response path to be
 exercised without a real API key.
-
-**Root model integration:**
-
-When `Ctrl+T` is pressed in `modeTag` with a single file open, the
-root model transitions to `modeTagSearching`, starts the spinner, and
-dispatches `claudeGuessTagsCmd` as a `tea.Batch` alongside
-`spinnerTick`. On `tagSearchResultMsg`, blank tag fields are
-pre-filled and mode returns to `modeTag`. On `tagSearchErrMsg`, the
-error is shown in the status bar and mode returns to `modeTag`.
 
 ## 3. Message Flow Diagrams
 
@@ -634,7 +661,30 @@ Root.Update receives       → mode = modeTag
                            → statusMsg = "Smart tag error: …"
 ```
 
-### 3.4 Conversion Cancellation
+### 3.4 Smart Tags from Browser
+
+```text
+User presses Ctrl+T        → dispatchCommand(m, "smart-tag", nil)
+cmdSmartTag called         → filter selected entries for .mp3 files
+                           → mode = modeSmartTagging
+                           → spinnerTick + smartTagCmd batched
+Spinner ticks              → spinnerFrame advances
+                           → "Applying smart tags..." shown in status
+For each file:             → read existing tags
+  if all 3 fields set      → skip (no API call)
+  else                     → callClaudeTagAPI(apiKey, file)
+                           → write only empty fields back to file
+smartTagCmd returns        → smartTagDoneMsg{count}
+Root.Update receives       → mode = modeBrowse
+  smartTagDoneMsg          → tagCache refreshed
+                           → statusMsg = "Smart tags applied (N files)"
+
+  (on API key missing      → smartTagErrMsg{err}
+   or unrecoverable err)   → mode = modeBrowse
+                           → statusMsg = "Smart tag error: …"
+```
+
+### 3.5 Conversion Cancellation
 
 ```text
 Conversion in progress     → convertFile goroutine running ffmpeg
@@ -679,8 +729,10 @@ arrive sequentially, and no locks are needed on model state.
 | Invalid tag file       | `id3v2.Open`          | Status bar; back to browse |
 | Unknown command        | `dispatchCommand`     | `"Unknown command: X"`     |
 | cd to bad dir          | `dispatchCommand`     | `"Not a directory: X"`     |
-| API key unset          | `claudeGuessTagsCmd`  | `"Smart tag error: …"`     |
-| Anthropic API error    | `claudeGuessTagsCmd`  | `"Smart tag error: …"`     |
+| API key unset       | `claudeGuessTagsCmd` | `"Smart tag error: …"` (editor) |
+| Anthropic API error | `claudeGuessTagsCmd` | `"Smart tag error: …"` (editor) |
+| API key unset       | `smartTagCmd`        | `"Smart tag error: …"` (browser) |
+| API error per file  | `smartTagCmd`        | skip file, continue queue        |
 
 Errors never cause a panic or program exit. All errors are surfaced
 through `statusMsg` with `statusIsError = true` (rendered in red).
@@ -776,6 +828,10 @@ navigation simple. Extracting packages (e.g., `pkg/convert`,
 |             | response is parsed into `tagSearchResultMsg`;     |
 |             | JSON embedded in prose is extracted correctly;    |
 |             | non-200 HTTP status returns `tagSearchErrMsg`.    |
+|             | `smartTagCmd`: missing key returns               |
+|             | `smartTagErrMsg`; successful call fills missing   |
+|             | fields; existing fields are not overwritten;      |
+|             | fully-tagged files skip the API call entirely.    |
 |             | `claudeAPIURL` is a package-level var overridden  |
 |             | in tests to avoid real network calls.             |
 | TUI         | Manual testing. Bubble Tea's `tea.Test` helpers   |

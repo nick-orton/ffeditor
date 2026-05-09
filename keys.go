@@ -9,7 +9,7 @@ func handleKeyMsg(m model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return updateBrowseMode(m, msg)
 	case modeTag:
 		return updateTagMode(m, msg)
-	case modeTagSaving, modeTagSearching:
+	case modeTagSaving, modeTagSearching, modeSmartTagging:
 		return m, nil
 	case modeHelp:
 		return updateHelpMode(m, msg)
@@ -40,6 +40,8 @@ func updateBrowseMode(m model, msg tea.KeyMsg) (model, tea.Cmd) {
 		return dispatchCommand(m, "edit", nil)
 	case "c":
 		return dispatchCommand(m, "convert", nil)
+	case "ctrl+t":
+		return dispatchCommand(m, "smart-tag", nil)
 	case "?":
 		m.mode = modeHelp
 		return m, nil

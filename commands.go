@@ -1,10 +1,12 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 
+	id3 "github.com/bogem/id3v2/v2"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -14,12 +16,16 @@ var knownCommands = []string{"cd", "convert", "edit", "q", "tag"}
 type cmdHandler func(model, []string) (model, tea.Cmd)
 
 var commandHandlers = map[string]cmdHandler{
-	"q":       cmdQuit,
-	"cd":      cmdCd,
-	"convert": cmdConvert,
-	"tag":     cmdTagEdit,
-	"edit":    cmdTagEdit,
+	"q":          cmdQuit,
+	"cd":         cmdCd,
+	"convert":    cmdConvert,
+	"tag":        cmdTagEdit,
+	"edit":       cmdTagEdit,
+	"smart-tag":  cmdSmartTag,
 }
+
+type smartTagDoneMsg struct{ count int }
+type smartTagErrMsg struct{ err error }
 
 func cmdQuit(m model, _ []string) (model, tea.Cmd) {
 	return m, tea.Quit
@@ -93,6 +99,82 @@ func cmdTagEdit(m model, _ []string) (model, tea.Cmd) {
 		return m, nil
 	}
 	return m, func() tea.Msg { return execTagMsg{mp3s} }
+}
+
+func cmdSmartTag(m model, _ []string) (model, tea.Cmd) {
+	entries := m.browser.selectedEntries()
+	var mp3s []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.ToLower(filepath.Ext(e.Name())) == ".mp3" {
+			mp3s = append(mp3s, filepath.Join(m.browser.dir, e.Name()))
+		}
+	}
+	if len(mp3s) == 0 {
+		m.statusMsg = "No .mp3 files selected"
+		m.statusIsError = true
+		return m, nil
+	}
+	m.mode = modeSmartTagging
+	m.spinnerFrame = 0
+	return m, tea.Batch(smartTagCmd(mp3s), spinnerTick())
+}
+
+// smartTagCmd fills missing ID3 tags (artist, title, year) for each file
+// using the Claude API, without overwriting fields that are already set.
+func smartTagCmd(files []string) tea.Cmd {
+	return func() tea.Msg {
+		apiKey := os.Getenv("ANTHROPIC_API_KEY")
+		if apiKey == "" {
+			return smartTagErrMsg{errors.New("ANTHROPIC_API_KEY not set")}
+		}
+
+		count := 0
+		for _, file := range files {
+			tag, err := id3.Open(file, id3.Options{Parse: true})
+			if err != nil {
+				continue
+			}
+			existingTitle := tag.Title()
+			existingArtist := tag.Artist()
+			existingYear := tag.Year()
+			tag.Close()
+
+			// Skip files where all three fields are already populated.
+			if existingTitle != "" && existingArtist != "" && existingYear != "" {
+				continue
+			}
+
+			guessed, err := callClaudeTagAPI(apiKey, file)
+			if err != nil {
+				continue
+			}
+
+			tag, err = id3.Open(file, id3.Options{Parse: true})
+			if err != nil {
+				continue
+			}
+			changed := false
+			if existingTitle == "" && guessed.Title != "" {
+				tag.SetTitle(guessed.Title)
+				changed = true
+			}
+			if existingArtist == "" && guessed.Artist != "" {
+				tag.SetArtist(guessed.Artist)
+				changed = true
+			}
+			if existingYear == "" && guessed.Year != "" {
+				tag.SetYear(guessed.Year)
+				changed = true
+			}
+			if changed {
+				tag.Save()
+				count++
+			}
+			tag.Close()
+		}
+
+		return smartTagDoneMsg{count}
+	}
 }
 
 type cmdbarModel struct {
