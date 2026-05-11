@@ -351,7 +351,7 @@ func TestScrolling(t *testing.T) {
 	m.height = 3
 
 	for i := 0; i < 5; i++ {
-		m = m.scrollDown()
+		m = m.scroll(1)
 	}
 
 	if m.cursor != 5 {
