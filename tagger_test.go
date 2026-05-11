@@ -361,3 +361,97 @@ func TestFLACTagSummaryInBrowser(t *testing.T) {
 		t.Errorf("title: got %q, want %q", summary.title, "Test Song")
 	}
 }
+
+func TestFLACAllFieldsRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := makeFlac(t, dir, "all-fields.flac")
+
+	m, err := newTaggerModel([]string{path})
+	if err != nil {
+		t.Fatalf("newTaggerModel: %v", err)
+	}
+
+	m.fields[0].value = "Round Trip Title"
+	m.fields[1].value = "Round Trip Artist"
+	m.fields[2].value = "Round Trip Album"
+	m.fields[3].value = "2024"
+	m.fields[4].value = "7"
+	m.fields[5].value = "Classical"
+
+	if _, ok := m.saveTags()().(tagSavedMsg); !ok {
+		t.Fatal("expected tagSavedMsg")
+	}
+
+	data, err := readFLACTags(path)
+	if err != nil {
+		t.Fatalf("readFLACTags: %v", err)
+	}
+	if data.Title != "Round Trip Title" {
+		t.Errorf("title: got %q, want %q", data.Title, "Round Trip Title")
+	}
+	if data.Artist != "Round Trip Artist" {
+		t.Errorf("artist: got %q, want %q", data.Artist, "Round Trip Artist")
+	}
+	if data.Album != "Round Trip Album" {
+		t.Errorf("album: got %q, want %q", data.Album, "Round Trip Album")
+	}
+	if data.Year != "2024" {
+		t.Errorf("year: got %q, want %q", data.Year, "2024")
+	}
+	if data.Track != "7" {
+		t.Errorf("track: got %q, want %q", data.Track, "7")
+	}
+	if data.Genre != "Classical" {
+		t.Errorf("genre: got %q, want %q", data.Genre, "Classical")
+	}
+}
+
+// TestFLACWriteMaskPreservesOtherFields verifies that writing one field
+// does not destroy other existing Vorbis Comment entries.
+func TestFLACWriteMaskPreservesOtherFields(t *testing.T) {
+	dir := t.TempDir()
+	path := makeFlac(t, dir, "preserve.flac")
+	writeFlacTags(t, path, map[string]string{
+		flacvorbis.FIELD_TITLE:       "Keep Me",
+		flacvorbis.FIELD_ARTIST:      "Also Keep",
+		flacvorbis.FIELD_ALBUM:       "Keep Album",
+		flacvorbis.FIELD_DATE:        "2000",
+		flacvorbis.FIELD_TRACKNUMBER: "3",
+		flacvorbis.FIELD_GENRE:       "Jazz",
+	})
+
+	m, err := newTaggerModel([]string{path})
+	if err != nil {
+		t.Fatalf("newTaggerModel: %v", err)
+	}
+
+	// Change only Artist.
+	m.fields[1].value = "New Artist"
+
+	if _, ok := m.saveTags()().(tagSavedMsg); !ok {
+		t.Fatal("expected tagSavedMsg")
+	}
+
+	data, err := readFLACTags(path)
+	if err != nil {
+		t.Fatalf("readFLACTags: %v", err)
+	}
+	if data.Title != "Keep Me" {
+		t.Errorf("title: got %q, want %q", data.Title, "Keep Me")
+	}
+	if data.Artist != "New Artist" {
+		t.Errorf("artist: got %q, want %q", data.Artist, "New Artist")
+	}
+	if data.Album != "Keep Album" {
+		t.Errorf("album: got %q, want %q", data.Album, "Keep Album")
+	}
+	if data.Year != "2000" {
+		t.Errorf("year: got %q, want %q", data.Year, "2000")
+	}
+	if data.Track != "3" {
+		t.Errorf("track: got %q, want %q", data.Track, "3")
+	}
+	if data.Genre != "Jazz" {
+		t.Errorf("genre: got %q, want %q", data.Genre, "Jazz")
+	}
+}
