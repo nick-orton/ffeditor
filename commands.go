@@ -35,7 +35,7 @@ func cmdCd(m model, args []string) (model, tea.Cmd) {
 	if len(args) == 0 {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return m.withStatus("Could not determine home directory", true), nil
+			return m.withError("Could not determine home directory"), nil
 		}
 		target = home
 	} else {
@@ -48,27 +48,27 @@ func cmdCd(m model, args []string) (model, tea.Cmd) {
 		var err error
 		target, err = filepath.Abs(target)
 		if err != nil {
-			return m.withStatus("Not a directory: "+args[0], true), nil
+			return m.withError("Not a directory: "+args[0]), nil
 		}
 	}
 	info, err := os.Stat(target)
 	if err != nil || !info.IsDir() {
-		return m.withStatus("Not a directory: "+target, true), nil
+		return m.withError("Not a directory: "+target), nil
 	}
 	var teaCmd tea.Cmd
 	m.browser, teaCmd = m.browser.changeDir(target)
-	m = m.withStatus("", false)
+	m = m.withMessage("")
 	return m, teaCmd
 }
 
 func cmdConvert(m model, _ []string) (model, tea.Cmd) {
 	if !m.ffmpegAvailable {
-		return m.withStatus("ffmpeg not available — conversion disabled", true), nil
+		return m.withError("ffmpeg not available — conversion disabled"), nil
 	}
 	entries := m.browser.selectedEntries()
 	files := buildConvertList(entries, m.browser.dir)
 	if len(files) == 0 {
-		return m.withStatus("No convertible files selected (.opus, .m4a, .ogg, .aac, .wav)", true), nil
+		return m.withError("No convertible files selected (.opus, .m4a, .ogg, .aac, .wav)"), nil
 	}
 	return m, func() tea.Msg { return execConvertMsg{files} }
 }
@@ -76,7 +76,7 @@ func cmdConvert(m model, _ []string) (model, tea.Cmd) {
 func cmdTagEdit(m model, _ []string) (model, tea.Cmd) {
 	files := selectedBlessedFiles(m.browser.selectedEntries(), m.browser.dir)
 	if len(files) == 0 {
-		return m.withStatus("No editable files selected (.mp3, .flac)", true), nil
+		return m.withError("No editable files selected (.mp3, .flac)"), nil
 	}
 	return m, func() tea.Msg { return execTagMsg{files} }
 }
@@ -84,7 +84,7 @@ func cmdTagEdit(m model, _ []string) (model, tea.Cmd) {
 func cmdSmartTag(m model, _ []string) (model, tea.Cmd) {
 	files := selectedBlessedFiles(m.browser.selectedEntries(), m.browser.dir)
 	if len(files) == 0 {
-		return m.withStatus("No editable files selected (.mp3, .flac)", true), nil
+		return m.withError("No editable files selected (.mp3, .flac)"), nil
 	}
 	m.mode = modeSmartTagging
 	m.spinnerFrame = 0

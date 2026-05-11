@@ -68,9 +68,15 @@ func newModel(dir string, ffmpegAvailable bool) model {
 	return m
 }
 
-func (m model) withStatus(msg string, isError bool) model {
+func (m model) withError(msg string) model {
 	m.statusMsg = msg
-	m.statusIsError = isError
+	m.statusIsError = true
+	return m
+}
+
+func (m model) withMessage(msg string) model {
+	m.statusMsg = msg
+	m.statusIsError = false
 	return m
 }
 
@@ -93,7 +99,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case execTagMsg:
 		tagger, err := newTaggerModel(msg.files)
 		if err != nil {
-			return m.withStatus("Error opening tag: "+err.Error(), true), nil
+			return m.withError("Error opening tag: "+err.Error()), nil
 		}
 		tagger.width = m.width
 		m.tagger = tagger
@@ -109,23 +115,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tagSavedMsg:
 		m.mode = modeBrowse
-		m = m.withStatus("Tags saved", false)
+		m = m.withMessage("Tags saved")
 		m.browser.tagCache = loadTagCache(m.browser.entries, m.browser.dir)
 		return m, nil
 
 	case tagBulkSavedMsg:
 		m.mode = modeBrowse
-		m = m.withStatus(fmt.Sprintf("Tags updated (%d files)", msg.count), false)
+		m = m.withMessage(fmt.Sprintf("Tags updated (%d files)", msg.count))
 		m.browser.tagCache = loadTagCache(m.browser.entries, m.browser.dir)
 		return m, nil
 
 	case tagCancelledMsg:
 		m.mode = modeBrowse
-		return m.withStatus("", false), nil
+		return m.withMessage(""), nil
 
 	case tagErrMsg:
 		m.mode = modeBrowse
-		return m.withStatus("Tag error: "+msg.err.Error(), true), nil
+		return m.withError("Tag error: "+msg.err.Error()), nil
 
 	case tagSearchResultMsg:
 		m.mode = modeTag
@@ -142,20 +148,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tagSearchErrMsg:
 		m.mode = modeTag
-		return m.withStatus("Smart tag error: "+msg.err.Error(), true), nil
+		return m.withError("Smart tag error: "+msg.err.Error()), nil
 
 	case smartTagDoneMsg:
 		m.mode = modeBrowse
-		m = m.withStatus(fmt.Sprintf("Smart tags applied (%d files)", msg.count), false)
+		m = m.withMessage(fmt.Sprintf("Smart tags applied (%d files)", msg.count))
 		m.browser.tagCache = loadTagCache(m.browser.entries, m.browser.dir)
 		return m, nil
 
 	case smartTagErrMsg:
 		m.mode = modeBrowse
-		return m.withStatus("Smart tag error: "+msg.err.Error(), true), nil
+		return m.withError("Smart tag error: "+msg.err.Error()), nil
 
 	case dirReadErrMsg:
-		return m.withStatus("Cannot read directory: "+msg.err.Error(), true), nil
+		return m.withError("Cannot read directory: "+msg.err.Error()), nil
 
 	case dirChangedMsg:
 		// Browser dir already updated; hook point for future phases.
@@ -172,7 +178,7 @@ func dispatchCommand(m model, cmd string, args []string) (model, tea.Cmd) {
 		return h(m, args)
 	}
 	if cmd != "" {
-		m = m.withStatus("Unknown command: "+cmd, true)
+		m = m.withError("Unknown command: " + cmd)
 	}
 	return m, nil
 }
