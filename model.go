@@ -68,6 +68,12 @@ func newModel(dir string, ffmpegAvailable bool) model {
 	return m
 }
 
+func (m model) withStatus(msg string, isError bool) model {
+	m.statusMsg = msg
+	m.statusIsError = isError
+	return m
+}
+
 func (m model) Init() tea.Cmd {
 	return nil
 }
@@ -87,9 +93,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case execTagMsg:
 		tagger, err := newTaggerModel(msg.files)
 		if err != nil {
-			m.statusMsg = "Error opening tag: " + err.Error()
-			m.statusIsError = true
-			return m, nil
+			return m.withStatus("Error opening tag: "+err.Error(), true), nil
 		}
 		tagger.width = m.width
 		m.tagger = tagger
@@ -105,66 +109,53 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tagSavedMsg:
 		m.mode = modeBrowse
-		m.statusMsg = "Tags saved"
-		m.statusIsError = false
+		m = m.withStatus("Tags saved", false)
 		m.browser.tagCache = loadTagCache(m.browser.entries, m.browser.dir)
 		return m, nil
 
 	case tagBulkSavedMsg:
 		m.mode = modeBrowse
-		m.statusMsg = fmt.Sprintf("Tags updated (%d files)", msg.count)
-		m.statusIsError = false
+		m = m.withStatus(fmt.Sprintf("Tags updated (%d files)", msg.count), false)
 		m.browser.tagCache = loadTagCache(m.browser.entries, m.browser.dir)
 		return m, nil
 
 	case tagCancelledMsg:
 		m.mode = modeBrowse
-		m.statusMsg = ""
-		m.statusIsError = false
-		return m, nil
+		return m.withStatus("", false), nil
 
 	case tagErrMsg:
 		m.mode = modeBrowse
-		m.statusMsg = "Tag error: " + msg.err.Error()
-		m.statusIsError = true
-		return m, nil
+		return m.withStatus("Tag error: "+msg.err.Error(), true), nil
 
 	case tagSearchResultMsg:
 		m.mode = modeTag
-		if m.tagger.fields[0].value == "" {
-			m.tagger.fields[0].value = msg.title
+		if m.tagger.fields[FieldTitle].value == "" {
+			m.tagger.fields[FieldTitle].value = msg.title
 		}
-		if m.tagger.fields[1].value == "" {
-			m.tagger.fields[1].value = msg.artist
+		if m.tagger.fields[FieldArtist].value == "" {
+			m.tagger.fields[FieldArtist].value = msg.artist
 		}
-		if m.tagger.fields[3].value == "" {
-			m.tagger.fields[3].value = msg.year
+		if m.tagger.fields[FieldYear].value == "" {
+			m.tagger.fields[FieldYear].value = msg.year
 		}
 		return m, nil
 
 	case tagSearchErrMsg:
 		m.mode = modeTag
-		m.statusMsg = "Smart tag error: " + msg.err.Error()
-		m.statusIsError = true
-		return m, nil
+		return m.withStatus("Smart tag error: "+msg.err.Error(), true), nil
 
 	case smartTagDoneMsg:
 		m.mode = modeBrowse
-		m.statusMsg = fmt.Sprintf("Smart tags applied (%d files)", msg.count)
-		m.statusIsError = false
+		m = m.withStatus(fmt.Sprintf("Smart tags applied (%d files)", msg.count), false)
 		m.browser.tagCache = loadTagCache(m.browser.entries, m.browser.dir)
 		return m, nil
 
 	case smartTagErrMsg:
 		m.mode = modeBrowse
-		m.statusMsg = "Smart tag error: " + msg.err.Error()
-		m.statusIsError = true
-		return m, nil
+		return m.withStatus("Smart tag error: "+msg.err.Error(), true), nil
 
 	case dirReadErrMsg:
-		m.statusMsg = "Cannot read directory: " + msg.err.Error()
-		m.statusIsError = true
-		return m, nil
+		return m.withStatus("Cannot read directory: "+msg.err.Error(), true), nil
 
 	case dirChangedMsg:
 		// Browser dir already updated; hook point for future phases.
@@ -181,8 +172,7 @@ func dispatchCommand(m model, cmd string, args []string) (model, tea.Cmd) {
 		return h(m, args)
 	}
 	if cmd != "" {
-		m.statusMsg = "Unknown command: " + cmd
-		m.statusIsError = true
+		m = m.withStatus("Unknown command: "+cmd, true)
 	}
 	return m, nil
 }

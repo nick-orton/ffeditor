@@ -35,9 +35,7 @@ func cmdCd(m model, args []string) (model, tea.Cmd) {
 	if len(args) == 0 {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			m.statusMsg = "Could not determine home directory"
-			m.statusIsError = true
-			return m, nil
+			return m.withStatus("Could not determine home directory", true), nil
 		}
 		target = home
 	} else {
@@ -50,72 +48,58 @@ func cmdCd(m model, args []string) (model, tea.Cmd) {
 		var err error
 		target, err = filepath.Abs(target)
 		if err != nil {
-			m.statusMsg = "Not a directory: " + args[0]
-			m.statusIsError = true
-			return m, nil
+			return m.withStatus("Not a directory: "+args[0], true), nil
 		}
 	}
 	info, err := os.Stat(target)
 	if err != nil || !info.IsDir() {
-		m.statusMsg = "Not a directory: " + target
-		m.statusIsError = true
-		return m, nil
+		return m.withStatus("Not a directory: "+target, true), nil
 	}
 	var teaCmd tea.Cmd
 	m.browser, teaCmd = m.browser.changeDir(target)
-	m.statusMsg = ""
-	m.statusIsError = false
+	m = m.withStatus("", false)
 	return m, teaCmd
 }
 
 func cmdConvert(m model, _ []string) (model, tea.Cmd) {
 	if !m.ffmpegAvailable {
-		m.statusMsg = "ffmpeg not available — conversion disabled"
-		m.statusIsError = true
-		return m, nil
+		return m.withStatus("ffmpeg not available — conversion disabled", true), nil
 	}
 	entries := m.browser.selectedEntries()
 	files := buildConvertList(entries, m.browser.dir)
 	if len(files) == 0 {
-		m.statusMsg = "No convertible files selected (.opus, .m4a, .ogg, .aac, .wav)"
-		m.statusIsError = true
-		return m, nil
+		return m.withStatus("No convertible files selected (.opus, .m4a, .ogg, .aac, .wav)", true), nil
 	}
 	return m, func() tea.Msg { return execConvertMsg{files} }
 }
 
 func cmdTagEdit(m model, _ []string) (model, tea.Cmd) {
-	entries := m.browser.selectedEntries()
-	var mp3s []string
-	for _, e := range entries {
-		if !e.IsDir() && isBlessed(e.Name()) {
-			mp3s = append(mp3s, filepath.Join(m.browser.dir, e.Name()))
-		}
+	files := selectedBlessedFiles(m.browser.selectedEntries(), m.browser.dir)
+	if len(files) == 0 {
+		return m.withStatus("No editable files selected (.mp3, .flac)", true), nil
 	}
-	if len(mp3s) == 0 {
-		m.statusMsg = "No editable files selected (.mp3, .flac)"
-		m.statusIsError = true
-		return m, nil
-	}
-	return m, func() tea.Msg { return execTagMsg{mp3s} }
+	return m, func() tea.Msg { return execTagMsg{files} }
 }
 
 func cmdSmartTag(m model, _ []string) (model, tea.Cmd) {
-	entries := m.browser.selectedEntries()
-	var mp3s []string
-	for _, e := range entries {
-		if !e.IsDir() && isBlessed(e.Name()) {
-			mp3s = append(mp3s, filepath.Join(m.browser.dir, e.Name()))
-		}
-	}
-	if len(mp3s) == 0 {
-		m.statusMsg = "No editable files selected (.mp3, .flac)"
-		m.statusIsError = true
-		return m, nil
+	files := selectedBlessedFiles(m.browser.selectedEntries(), m.browser.dir)
+	if len(files) == 0 {
+		return m.withStatus("No editable files selected (.mp3, .flac)", true), nil
 	}
 	m.mode = modeSmartTagging
 	m.spinnerFrame = 0
-	return m, tea.Batch(smartTagCmd(mp3s), spinnerTick())
+	return m, tea.Batch(smartTagCmd(files), spinnerTick())
+}
+
+// selectedBlessedFiles returns the full paths of all selected blessed (editable) files.
+func selectedBlessedFiles(entries []os.DirEntry, dir string) []string {
+	var files []string
+	for _, e := range entries {
+		if !e.IsDir() && isBlessed(e.Name()) {
+			files = append(files, filepath.Join(dir, e.Name()))
+		}
+	}
+	return files
 }
 
 // smartTagCmd fills missing tags (artist, title, year) for each file
@@ -148,17 +132,17 @@ func smartTagCmd(files []string) tea.Cmd {
 			var mask [6]bool
 			if existing.Title == "" && guessed.Title != "" {
 				data.Title = guessed.Title
-				mask[0] = true
+				mask[FieldTitle] = true
 			}
 			if existing.Artist == "" && guessed.Artist != "" {
 				data.Artist = guessed.Artist
-				mask[1] = true
+				mask[FieldArtist] = true
 			}
 			if existing.Year == "" && guessed.Year != "" {
 				data.Year = guessed.Year
-				mask[3] = true
+				mask[FieldYear] = true
 			}
-			if mask[0] || mask[1] || mask[3] {
+			if mask[FieldTitle] || mask[FieldArtist] || mask[FieldYear] {
 				if err := writeTags(file, data, mask); err == nil {
 					count++
 				}

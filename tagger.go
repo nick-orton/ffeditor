@@ -9,6 +9,16 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// Tag field indices used across tagger, commands, and model.
+const (
+	FieldTitle  = 0
+	FieldArtist = 1
+	FieldAlbum  = 2
+	FieldYear   = 3
+	FieldTrack  = 4
+	FieldGenre  = 5
+)
+
 type tagField struct {
 	label    string
 	value    string
