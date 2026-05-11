@@ -19,6 +19,7 @@ const (
 	modeTagSearching
 	modeHelp
 	modeSmartTagging
+	modeFilter
 )
 
 type spinnerTickMsg struct{}
@@ -213,7 +214,17 @@ func (m model) View() string {
 		statusLine = styleStatusOk.Render(m.statusMsg)
 	}
 
-	cmdBar := m.cmdbar.View(m.width)
+	var cmdBar string
+	switch m.mode {
+	case modeFilter:
+		cmdBar = styleCmdPrefix.Render("/") + m.browser.filterInput
+	default:
+		if m.browser.filterInput != "" {
+			cmdBar = styleTagInfo.Render("filter: " + m.browser.filterInput)
+		} else {
+			cmdBar = m.cmdbar.View(m.width)
+		}
+	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, browserView, statusLine, cmdBar)
 }

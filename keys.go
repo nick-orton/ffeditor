@@ -7,6 +7,8 @@ func handleKeyMsg(m model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.mode {
 	case modeBrowse:
 		return updateBrowseMode(m, msg)
+	case modeFilter:
+		return updateFilterMode(m, msg)
 	case modeTag:
 		return updateTagMode(m, msg)
 	case modeTagSaving, modeTagSearching, modeSmartTagging:
@@ -45,6 +47,15 @@ func updateBrowseMode(m model, msg tea.KeyMsg) (model, tea.Cmd) {
 	case "?":
 		m.mode = modeHelp
 		return m, nil
+	case "/":
+		m.browser = m.browser.applyFilter("")
+		m.mode = modeFilter
+		return m, nil
+	case "esc":
+		if m.browser.filterInput != "" {
+			m.browser = m.browser.clearFilter()
+		}
+		return m, nil
 	}
 	var cmd tea.Cmd
 	m.browser, cmd = m.browser.Update(msg)
@@ -71,6 +82,34 @@ func updateTagMode(m model, msg tea.KeyMsg) (model, tea.Cmd) {
 
 func updateHelpMode(m model, _ tea.KeyMsg) (model, tea.Cmd) {
 	m.mode = modeBrowse
+	return m, nil
+}
+
+func updateFilterMode(m model, msg tea.KeyMsg) (model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		m.mode = modeBrowse
+	case "esc":
+		m.browser = m.browser.clearFilter()
+		m.mode = modeBrowse
+	case "backspace":
+		if len(m.browser.filterInput) > 0 {
+			runes := []rune(m.browser.filterInput)
+			m.browser = m.browser.applyFilter(string(runes[:len(runes)-1]))
+		}
+	case "up":
+		m.browser = m.browser.scroll(-1)
+	case "down":
+		m.browser = m.browser.scroll(1)
+	case "ctrl+u":
+		m.browser = m.browser.scroll(-max(m.browser.height/2, 1))
+	case "ctrl+d":
+		m.browser = m.browser.scroll(max(m.browser.height/2, 1))
+	default:
+		if len(msg.Runes) == 1 {
+			m.browser = m.browser.applyFilter(m.browser.filterInput + string(msg.Runes))
+		}
+	}
 	return m, nil
 }
 
