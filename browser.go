@@ -17,15 +17,6 @@ type dirReadErrMsg struct {
 	err  error
 }
 
-var audioExts = map[string]bool{
-	".mp3": true, ".opus": true, ".m4a": true,
-	".flac": true, ".ogg": true,
-}
-
-func isAudio(name string) bool {
-	return audioExts[strings.ToLower(filepath.Ext(name))]
-}
-
 type tagSummary struct {
 	artist string
 	title  string
@@ -55,7 +46,7 @@ func readTagSummary(path string) tagSummary {
 func loadTagCache(entries []os.DirEntry, dir string) map[string]tagSummary {
 	cache := make(map[string]tagSummary)
 	for _, e := range entries {
-		if !e.IsDir() && strings.ToLower(filepath.Ext(e.Name())) == ".mp3" {
+		if !e.IsDir() && isBlessed(e.Name()) {
 			cache[e.Name()] = readTagSummary(filepath.Join(dir, e.Name()))
 		}
 	}
@@ -349,6 +340,8 @@ func (m browserModel) View(width, height int) string {
 			} else {
 				styledName = styleSymlink.Render(name + "@")
 			}
+		case isBlessed(name):
+			styledName = styleBlessed.Render(name)
 		case isAudio(name):
 			styledName = styleAudio.Render(name)
 		case strings.HasPrefix(name, "."):
@@ -384,8 +377,7 @@ func (m browserModel) tagColumn(name string, nameWidth, totalWidth int) string {
 	if available < minTagWidth {
 		return ""
 	}
-	ext := strings.ToLower(filepath.Ext(name))
-	if ext != ".mp3" {
+	if !isBlessed(name) {
 		return ""
 	}
 	summary, ok := m.tagCache[name]

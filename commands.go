@@ -89,12 +89,12 @@ func cmdTagEdit(m model, _ []string) (model, tea.Cmd) {
 	entries := m.browser.selectedEntries()
 	var mp3s []string
 	for _, e := range entries {
-		if !e.IsDir() && strings.ToLower(filepath.Ext(e.Name())) == ".mp3" {
+		if !e.IsDir() && isBlessed(e.Name()) {
 			mp3s = append(mp3s, filepath.Join(m.browser.dir, e.Name()))
 		}
 	}
 	if len(mp3s) == 0 {
-		m.statusMsg = "No .mp3 files selected"
+		m.statusMsg = "No editable files selected (.mp3, .flac)"
 		m.statusIsError = true
 		return m, nil
 	}
@@ -105,12 +105,12 @@ func cmdSmartTag(m model, _ []string) (model, tea.Cmd) {
 	entries := m.browser.selectedEntries()
 	var mp3s []string
 	for _, e := range entries {
-		if !e.IsDir() && strings.ToLower(filepath.Ext(e.Name())) == ".mp3" {
+		if !e.IsDir() && isBlessed(e.Name()) {
 			mp3s = append(mp3s, filepath.Join(m.browser.dir, e.Name()))
 		}
 	}
 	if len(mp3s) == 0 {
-		m.statusMsg = "No .mp3 files selected"
+		m.statusMsg = "No editable files selected (.mp3, .flac)"
 		m.statusIsError = true
 		return m, nil
 	}

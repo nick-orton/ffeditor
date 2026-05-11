@@ -19,10 +19,6 @@ type convertErrMsg struct {
 type convertSkippedMsg struct{ src string }
 type convertProgressMsg struct{ current, total int }
 
-var convertExts = map[string]bool{
-	".opus": true, ".m4a": true, ".ogg": true, ".aac": true,
-}
-
 func convertFile(ctx context.Context, src string) tea.Cmd {
 	return func() tea.Msg {
 		dest := filepath.Join(filepath.Dir(src),
@@ -138,16 +134,14 @@ func buildConvertList(entries []os.DirEntry, dir string) []string {
 				if err != nil || d.IsDir() {
 					return nil
 				}
-				ext := strings.ToLower(filepath.Ext(d.Name()))
-				if convertExts[ext] && !seen[path] {
+				if isConvertible(d.Name()) && !seen[path] {
 					seen[path] = true
 					result = append(result, path)
 				}
 				return nil
 			})
 		} else {
-			ext := strings.ToLower(filepath.Ext(entry.Name()))
-			if convertExts[ext] && !seen[fullPath] {
+			if isConvertible(entry.Name()) && !seen[fullPath] {
 				seen[fullPath] = true
 				result = append(result, fullPath)
 			}
