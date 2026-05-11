@@ -21,8 +21,10 @@ formats, and edits ID3 metadata — all from within a single interface.
   (with Lip Gloss for styling)
 - **Audio conversion:** shells out to `ffmpeg` (must be installed on
   the host)
-- **ID3 tagging:** [bogem/id3v2](https://github.com/bogem/id3v2)
-  pure-Go library
+- **Tag I/O:** [bogem/id3v2](https://github.com/bogem/id3v2)
+  (MP3 ID3 tags), [go-flac/go-flac](https://github.com/go-flac/go-flac)
+  + [go-flac/flacvorbis](https://github.com/go-flac/flacvorbis)
+  (FLAC Vorbis Comments) — all pure Go, no CGo
 - **Smart tag lookup:** Anthropic Messages API (`claude-haiku-4-5`);
   requires `ANTHROPIC_API_KEY` environment variable
 
@@ -33,7 +35,8 @@ main.go              — entry point, arg parsing, Bubble Tea program init
 model.go             — top-level TUI model, update loop, view
 browser.go           — file-system browser component
 converter.go         — audio conversion logic (ffmpeg wrapper)
-tagger.go            — ID3 tag read/write logic
+tagger.go            — tag editor UI (format-agnostic)
+tags.go              — tag I/O dispatch and format-specific backends
 commands.go          — command-bar parsing & dispatch
 claude.go            — Anthropic API call for smart tag lookup
 ```
@@ -50,6 +53,7 @@ claude.go            — Anthropic API call for smart tag lookup
 │    song.opus                                                 │
 │    demo.m4a                                                  │ ← browser
 │    tagged.mp3          The Beatles · Come Together           │
+│    album.flac          Pink Floyd · Breathe                  │
 │    untagged.mp3        —                                     │
 │    notes.txt                                                 │
 ├──────────────────────────────────────────────────────────────┤
@@ -74,9 +78,9 @@ claude.go            — Anthropic API call for smart tag lookup
 | `i`           | Toggle hidden files (dotfiles)                  |
 | `Space`       | Toggle selection (for bulk ops), advance cursor |
 | `Ctrl+A`      | Select all entries in current directory         |
-| `e`           | Edit ID3 tags for selected `.mp3` file(s)       |
+| `e`           | Edit tags for selected `.mp3`/`.flac` file(s)   |
 | `c`           | Convert selected audio files to `.mp3`          |
-| `Ctrl+T`      | Fill missing tags (smart tags), no editor       |
+| `Ctrl+T`      | Fill missing tags (smart tags) for `.mp3`/`.flac`|
 | `?`           | Show help screen (any key to dismiss)           |
 | `:`           | Focus command bar                               |
 | `Ctrl+C`      | Cancel in-progress conversion (stay in app)     |
@@ -108,11 +112,12 @@ claude.go            — Anthropic API call for smart tag lookup
 
 #### Tag summary column
 
-For `.mp3` files, the browser shows a tag summary to the right of each
-filename. The summary displays `Artist · Title`; if only one field is
-present, just that value is shown. Files with no tag data show a dim
-`—` so untagged files are immediately visible. Non-`.mp3` audio files
-and non-audio entries show nothing in this column.
+For taggable files (`.mp3` and `.flac`), the browser shows a tag
+summary to the right of each filename. The summary displays
+`Artist · Title`; if only one field is present, just that value is
+shown. Files with no tag data show a dim `—` so untagged files are
+immediately visible. Other audio files and non-audio entries show
+nothing in this column.
 
 The tag column is hidden automatically when the terminal is too narrow
 to show it without obscuring the filename (minimum 12 characters of
@@ -184,10 +189,11 @@ The application stays open, the status bar shows
 `Conversion cancelled`, and the browser refreshes. Files already
 converted before cancellation are kept.
 
-### 3. ID3 Tag Editing
+### 3. Tag Editing
 
-Select an `.mp3` file and press `e` (or run `:edit` / `:tag`) to enter
-tag-editing mode.
+Select an `.mp3` or `.flac` file and press `e` (or run `:edit` /
+`:tag`) to enter tag-editing mode. The editor supports both ID3v2 tags
+(MP3) and Vorbis Comments (FLAC) transparently.
 
 #### Tag editing view
 
@@ -233,7 +239,8 @@ tag-editing mode.
 
 #### Bulk tagging
 
-Multi-select several `.mp3` files, then press `e` (or run `:edit`).
+Multi-select several `.mp3` and/or `.flac` files, then press `e` (or
+run `:edit`).
 Fields shared by every selected file are pre-filled; differing fields
 start blank. Only fields the user fills in are written; blank fields
 are left unchanged on each file. The Title field is disabled in bulk
@@ -245,9 +252,9 @@ filenames combined.
 
 ### 4. Smart Tags from Browser
 
-Press `Ctrl+T` in the file browser to fill missing ID3 tags for the
-selected `.mp3` file(s) without opening the tag editor. Works on a
-single file (cursor) or any number of space-selected files.
+Press `Ctrl+T` in the file browser to fill missing tags for the
+selected `.mp3` or `.flac` file(s) without opening the tag editor.
+Works on a single file (cursor) or any number of space-selected files.
 
 - For each file, the basename is sent to Claude Haiku, which guesses
   Artist, Title, and Year.
@@ -268,7 +275,7 @@ browser without opening the command bar.
 
 | Key / Command    | Description                                      |
 |------------------|--------------------------------------------------|
-| `e` / `:edit`    | Open ID3 tag editor for selected `.mp3` file(s)  |
+| `e` / `:edit`    | Open tag editor for selected `.mp3`/`.flac` files |
 | `c` / `:convert` | Convert selected file(s)/dir(s) to `.mp3`        |
 | `:tag`           | Synonym for `:edit`                              |
 | `:cd <path>`     | Change browser to an absolute or relative path   |
@@ -315,6 +322,5 @@ tabbing deeper. Works with absolute paths, relative paths, and `~`.
 ## Future Considerations (out of scope for v1)
 
 - Playback preview (e.g., via `mpv` or `ffplay`).
-- FLAC/OGG conversion support.
 - Album art embedding.
 - Batch rename files from tag data.

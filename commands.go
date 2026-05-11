@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	id3 "github.com/bogem/id3v2/v2"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -119,7 +118,7 @@ func cmdSmartTag(m model, _ []string) (model, tea.Cmd) {
 	return m, tea.Batch(smartTagCmd(mp3s), spinnerTick())
 }
 
-// smartTagCmd fills missing ID3 tags (artist, title, year) for each file
+// smartTagCmd fills missing tags (artist, title, year) for each file
 // using the Claude API, without overwriting fields that are already set.
 func smartTagCmd(files []string) tea.Cmd {
 	return func() tea.Msg {
@@ -130,17 +129,13 @@ func smartTagCmd(files []string) tea.Cmd {
 
 		count := 0
 		for _, file := range files {
-			tag, err := id3.Open(file, id3.Options{Parse: true})
+			existing, err := readTags(file)
 			if err != nil {
 				continue
 			}
-			existingTitle := tag.Title()
-			existingArtist := tag.Artist()
-			existingYear := tag.Year()
-			tag.Close()
 
 			// Skip files where all three fields are already populated.
-			if existingTitle != "" && existingArtist != "" && existingYear != "" {
+			if existing.Title != "" && existing.Artist != "" && existing.Year != "" {
 				continue
 			}
 
@@ -149,28 +144,25 @@ func smartTagCmd(files []string) tea.Cmd {
 				continue
 			}
 
-			tag, err = id3.Open(file, id3.Options{Parse: true})
-			if err != nil {
-				continue
+			data := existing
+			var mask [6]bool
+			if existing.Title == "" && guessed.Title != "" {
+				data.Title = guessed.Title
+				mask[0] = true
 			}
-			changed := false
-			if existingTitle == "" && guessed.Title != "" {
-				tag.SetTitle(guessed.Title)
-				changed = true
+			if existing.Artist == "" && guessed.Artist != "" {
+				data.Artist = guessed.Artist
+				mask[1] = true
 			}
-			if existingArtist == "" && guessed.Artist != "" {
-				tag.SetArtist(guessed.Artist)
-				changed = true
+			if existing.Year == "" && guessed.Year != "" {
+				data.Year = guessed.Year
+				mask[3] = true
 			}
-			if existingYear == "" && guessed.Year != "" {
-				tag.SetYear(guessed.Year)
-				changed = true
+			if mask[0] || mask[1] || mask[3] {
+				if err := writeTags(file, data, mask); err == nil {
+					count++
+				}
 			}
-			if changed {
-				tag.Save()
-				count++
-			}
-			tag.Close()
 		}
 
 		return smartTagDoneMsg{count}

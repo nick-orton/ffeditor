@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
 
 	id3 "github.com/bogem/id3v2/v2"
+	flac "github.com/go-flac/go-flac"
+	flacvorbis "github.com/go-flac/flacvorbis"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -217,5 +220,144 @@ func TestBulkTag_BlankFieldSkipped(t *testing.T) {
 		if artist != "Original Artist" {
 			t.Errorf("%s: artist = %q, want %q", filepath.Base(p), artist, "Original Artist")
 		}
+	}
+}
+
+// makeFlac creates a minimal valid FLAC file at the given path.
+// It writes an empty StreamInfo block followed by fake frame sync bytes so
+// that go-flac's ParseFile (which reads the audio stream) accepts the file.
+func makeFlac(t *testing.T, dir, name string) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+
+	// Build a minimal FLAC binary from scratch.
+	var buf bytes.Buffer
+
+	// Magic header.
+	buf.WriteString("fLaC")
+
+	// StreamInfo metadata block: last-block=1, type=0 (StreamInfo), length=34.
+	// Header: bit7=last, bits[6:1]=type(0), bits[23:0]=length(34=0x22).
+	buf.Write([]byte{0x80, 0x00, 0x00, 0x22})
+	// StreamInfo data: 34 zero bytes (sample rate=0 is technically invalid but
+	// go-flac does not validate these values when parsing).
+	buf.Write(make([]byte, 34))
+
+	// Minimal audio frame starting with FLAC sync code 0xFF 0xF8.
+	buf.Write([]byte{0xFF, 0xF8, 0x18, 0x00})
+
+	if err := os.WriteFile(path, buf.Bytes(), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// writeFlacTags writes the given key=value pairs into the Vorbis Comment block
+// of a FLAC file, used to set up test fixtures.
+func writeFlacTags(t *testing.T, path string, tags map[string]string) {
+	t.Helper()
+	f, err := flac.ParseFile(path)
+	if err != nil {
+		t.Fatalf("writeFlacTags ParseFile: %v", err)
+	}
+
+	// Find or create the Vorbis Comment block.
+	var cmt *flacvorbis.MetaDataBlockVorbisComment
+	idx := -1
+	for i, m := range f.Meta {
+		if m.Type == flac.VorbisComment {
+			idx = i
+			break
+		}
+	}
+	if idx >= 0 {
+		cmt, err = flacvorbis.ParseFromMetaDataBlock(*f.Meta[idx])
+		if err != nil {
+			cmt = flacvorbis.New()
+		}
+	} else {
+		cmt = flacvorbis.New()
+	}
+
+	for key, val := range tags {
+		if err := cmt.Add(key, val); err != nil {
+			t.Fatalf("writeFlacTags Add: %v", err)
+		}
+	}
+
+	block := cmt.Marshal()
+	if idx >= 0 {
+		f.Meta[idx] = &block
+	} else {
+		f.Meta = append(f.Meta, &block)
+	}
+	if err := f.Save(path); err != nil {
+		t.Fatalf("writeFlacTags Save: %v", err)
+	}
+}
+
+func TestFLACTagReadWrite(t *testing.T) {
+	dir := t.TempDir()
+	path := makeFlac(t, dir, "test.flac")
+
+	m, err := newTaggerModel([]string{path})
+	if err != nil {
+		t.Fatalf("newTaggerModel: %v", err)
+	}
+
+	m.fields[0].value = "FLAC Title"
+	m.fields[1].value = "FLAC Artist"
+
+	msg := m.saveTags()()
+	if _, ok := msg.(tagSavedMsg); !ok {
+		t.Fatalf("expected tagSavedMsg, got %T: %v", msg, msg)
+	}
+
+	data, err := readFLACTags(path)
+	if err != nil {
+		t.Fatalf("readFLACTags: %v", err)
+	}
+	if data.Title != "FLAC Title" {
+		t.Errorf("title: got %q, want %q", data.Title, "FLAC Title")
+	}
+	if data.Artist != "FLAC Artist" {
+		t.Errorf("artist: got %q, want %q", data.Artist, "FLAC Artist")
+	}
+}
+
+func TestFLACTagPreload(t *testing.T) {
+	dir := t.TempDir()
+	path := makeFlac(t, dir, "tagged.flac")
+	writeFlacTags(t, path, map[string]string{
+		flacvorbis.FIELD_TITLE:  "Existing Title",
+		flacvorbis.FIELD_ARTIST: "Existing Artist",
+	})
+
+	m, err := newTaggerModel([]string{path})
+	if err != nil {
+		t.Fatalf("newTaggerModel: %v", err)
+	}
+	if m.fields[0].value != "Existing Title" {
+		t.Errorf("title: got %q, want %q", m.fields[0].value, "Existing Title")
+	}
+	if m.fields[1].value != "Existing Artist" {
+		t.Errorf("artist: got %q, want %q", m.fields[1].value, "Existing Artist")
+	}
+}
+
+func TestFLACTagSummaryInBrowser(t *testing.T) {
+	dir := t.TempDir()
+	path := makeFlac(t, dir, "song.flac")
+	writeFlacTags(t, path, map[string]string{
+		flacvorbis.FIELD_ARTIST: "Test Artist",
+		flacvorbis.FIELD_TITLE:  "Test Song",
+	})
+
+	summary := readTagSummary(path)
+	if summary.artist != "Test Artist" {
+		t.Errorf("artist: got %q, want %q", summary.artist, "Test Artist")
+	}
+	if summary.title != "Test Song" {
+		t.Errorf("title: got %q, want %q", summary.title, "Test Song")
 	}
 }
