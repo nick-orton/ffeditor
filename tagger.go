@@ -37,6 +37,8 @@ type taggerModel struct {
 	tabIndex   int      // next index within tabMatches
 }
 
+func (m taggerModel) isBulkMode() bool { return len(m.files) > 1 }
+
 type tagSavedMsg struct{}
 type tagBulkSavedMsg struct{ count int }
 type tagCancelledMsg struct{}
@@ -69,12 +71,12 @@ func newTaggerModel(files []string) (taggerModel, error) {
 			data, err := readTags(file)
 			vals := make([]string, 6)
 			if err == nil {
-				vals[0] = data.Title
-				vals[1] = data.Artist
-				vals[2] = data.Album
-				vals[3] = data.Year
-				vals[4] = data.Track
-				vals[5] = data.Genre
+				vals[FieldTitle] = data.Title
+				vals[FieldArtist] = data.Artist
+				vals[FieldAlbum] = data.Album
+				vals[FieldYear] = data.Year
+				vals[FieldTrack] = data.Track
+				vals[FieldGenre] = data.Genre
 			}
 			allVals[i] = vals
 		}
@@ -97,17 +99,11 @@ func newTaggerModel(files []string) (taggerModel, error) {
 		}
 	}
 
-	focusIndex := 0
-	if len(files) > 1 {
-		focusIndex = 1 // Title is not editable in bulk mode
+	m := taggerModel{files: files, fields: fields, tokens: tokenizeFilenames(files)}
+	if m.isBulkMode() {
+		m.focusIndex = FieldArtist // Title is not editable in bulk mode
 	}
-
-	return taggerModel{
-		files:      files,
-		fields:     fields,
-		focusIndex: focusIndex,
-		tokens:     tokenizeFilenames(files),
-	}, nil
+	return m, nil
 }
 
 // tokenizeFilenames splits filenames on non-alphanumeric characters and returns
@@ -141,15 +137,15 @@ func (m taggerModel) Update(msg tea.Msg) (taggerModel, tea.Cmd) {
 			return m, nil
 		case "down":
 			next := (m.focusIndex + 1) % 6
-			if len(m.files) > 1 && next == 0 {
-				next = 1
+			if m.isBulkMode() && next == 0 {
+				next = FieldArtist
 			}
 			m.focusIndex = next
 			m.tabMatches = nil
 		case "shift+tab", "up":
 			next := (m.focusIndex + 5) % 6
-			if len(m.files) > 1 && next == 0 {
-				next = 5
+			if m.isBulkMode() && next == 0 {
+				next = FieldGenre
 			}
 			m.focusIndex = next
 			m.tabMatches = nil
@@ -206,9 +202,10 @@ func (m taggerModel) saveTags() tea.Cmd {
 	files := m.files
 	fields := make([]tagField, len(m.fields))
 	copy(fields, m.fields)
+	bulk := m.isBulkMode()
 
 	return func() tea.Msg {
-		if len(files) == 1 {
+		if !bulk {
 			data := tagData{
 				Title:  fields[0].value,
 				Artist: fields[1].value,
@@ -276,7 +273,7 @@ func (m taggerModel) View(width, height int) string {
 	for i, f := range m.fields {
 		label := styleTagLabel.Render(f.label + ":")
 		var val string
-		if len(m.files) > 1 && i == 0 {
+		if m.isBulkMode() && i == FieldTitle {
 			val = styleTagDisabled.Render(f.value)
 		} else if i == m.focusIndex {
 			val = styleTagFocused.Render(f.value) + "▌"
@@ -288,7 +285,7 @@ func (m taggerModel) View(width, height int) string {
 	tagsBox := titledBox("Tags", strings.Join(fieldLines, "\n"), boxWidth)
 
 	hint := "  Up/Down: navigate   Tab: complete   Ctrl+S: save   Esc: cancel"
-	if len(m.files) == 1 {
+	if !m.isBulkMode() {
 		hint = "  Up/Down: navigate   Tab: complete   Ctrl+T: smart tags   Ctrl+S: save   Esc: cancel"
 	}
 	content := strings.Join([]string{filesBox, "", tagsBox, "", hint}, "\n")
