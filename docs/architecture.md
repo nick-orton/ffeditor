@@ -197,7 +197,7 @@ type browserModel struct {
 ```go
 var audioExts = extSet{
     ".mp3": {}, ".flac": {},
-    ".opus": {}, ".m4a": {}, ".ogg": {}, ".aac": {},
+    ".opus": {}, ".m4a": {}, ".ogg": {}, ".aac": {}, ".wav": {},
 }
 
 var blessedExts = extSet{".mp3": {}, ".flac": {}}
@@ -255,11 +255,20 @@ returns Bubble Tea `Cmd`s for async execution.
 
 **Core function:**
 
+`targetForExt(srcExt string) convertTarget` selects the output
+extension and codec args based on the source format:
+
+- `.wav` → `.flac` with `-codec:a flac` (lossless → lossless)
+- all others → `.mp3` with `-codec:a libmp3lame -qscale:a 2`
+
 ```go
 func convertFile(ctx context.Context, src string) tea.Cmd {
     return func() tea.Msg {
+        ext := strings.ToLower(filepath.Ext(src))
+        target := targetForExt(ext)
         dest := filepath.Join(filepath.Dir(src),
-            strings.TrimSuffix(filepath.Base(src), filepath.Ext(src))+".mp3")
+            strings.TrimSuffix(filepath.Base(src),
+                filepath.Ext(src))+target.ext)
 
         if _, err := os.Stat(dest); err == nil {
             return convertSkippedMsg{src}
@@ -267,16 +276,16 @@ func convertFile(ctx context.Context, src string) tea.Cmd {
 
         // ogg/opus store user tags in stream-level metadata (Vorbis
         // Comments), so they must be mapped to global output metadata
-        // explicitly. m4a stores tags at the container level, so
-        // -map_metadata 0 suffices.
+        // explicitly. m4a and wav store tags at the container level,
+        // so -map_metadata 0 suffices.
         metaArgs := []string{"-map_metadata", "0"}
-        ext := strings.ToLower(filepath.Ext(src))
         if ext == ".opus" || ext == ".ogg" {
             metaArgs = []string{"-map_metadata:g", "0:s:0"}
         }
 
         args := append([]string{"-y", "-i", src}, metaArgs...)
-        args = append(args, "-codec:a", "libmp3lame", "-qscale:a", "2", dest)
+        args = append(args, target.codecArgs...)
+        args = append(args, dest)
         cmd := exec.CommandContext(ctx, "ffmpeg", args...)
         cmd.Stdout = nil
         cmd.Stderr = nil
@@ -323,7 +332,7 @@ type convertProgressMsg struct{ current, total int }
    ```
 
 5. Return `convertFile(ctx, files[0])` as the first `Cmd`. The output
-   `.mp3` is written alongside the source file (same directory).
+   file is written alongside the source file (same directory).
 6. On each `convertDoneMsg`/`convertErrMsg`/`convertSkippedMsg`,
    increment the relevant counter and call `nextConvert`:
    - If `convertCancelled`: clean up context, clear the queue,
@@ -482,10 +491,13 @@ which fields to update: `[0]=Title, [1]=Artist, [2]=Album, [3]=Year,
 
 **Format backends:**
 
-| Extension | Read function   | Write function   | Library                   | Tag format      |
-|-----------|-----------------|------------------|---------------------------|-----------------|
-| `.mp3`    | `readMP3Tags`   | `writeMP3Tags`   | `bogem/id3v2/v2`          | ID3v2.3/2.4     |
-| `.flac`   | `readFLACTags`  | `writeFLACTags`  | `go-flac/go-flac` + `go-flac/flacvorbis` | Vorbis Comments |
+| Ext     | Read fn          | Write fn          | Tag format      |
+|---------|------------------|-------------------|-----------------|
+| `.mp3`  | `readMP3Tags`    | `writeMP3Tags`    | ID3v2.3/2.4     |
+| `.flac` | `readFLACTags`   | `writeFLACTags`   | Vorbis Comments |
+
+Libraries: `bogem/id3v2/v2` (MP3); `go-flac/go-flac` and
+`go-flac/flacvorbis` (FLAC).
 
 Unknown extensions fall through to the MP3 backend (default case).
 

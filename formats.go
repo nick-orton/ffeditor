@@ -15,11 +15,11 @@ func (s extSet) contains(name string) bool {
 // audioExts is the full set of audio formats recognised by the browser.
 var audioExts = extSet{
 	".mp3": {}, ".flac": {},
-	".opus": {}, ".m4a": {}, ".ogg": {}, ".aac": {},
+	".opus": {}, ".m4a": {}, ".ogg": {}, ".aac": {}, ".wav": {},
 }
 
 // convertibleExts are accepted input formats that can be converted to a blessed format.
-var convertibleExts = extSet{".opus": {}, ".m4a": {}, ".ogg": {}, ".aac": {}}
+var convertibleExts = extSet{".opus": {}, ".m4a": {}, ".ogg": {}, ".aac": {}, ".wav": {}}
 
 // blessedExts are final/editable output formats.
 var blessedExts = extSet{".mp3": {}, ".flac": {}}

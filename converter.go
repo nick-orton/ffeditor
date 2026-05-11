@@ -19,10 +19,33 @@ type convertErrMsg struct {
 type convertSkippedMsg struct{ src string }
 type convertProgressMsg struct{ current, total int }
 
+type convertTarget struct {
+	ext       string
+	codecArgs []string
+}
+
+// targetForExt returns the output extension and ffmpeg codec args for the
+// given source extension. WAV (lossless PCM) converts to FLAC to preserve
+// quality; all other formats convert to MP3.
+func targetForExt(srcExt string) convertTarget {
+	if srcExt == ".wav" {
+		return convertTarget{
+			ext:       ".flac",
+			codecArgs: []string{"-codec:a", "flac"},
+		}
+	}
+	return convertTarget{
+		ext:       ".mp3",
+		codecArgs: []string{"-codec:a", "libmp3lame", "-qscale:a", "2"},
+	}
+}
+
 func convertFile(ctx context.Context, src string) tea.Cmd {
 	return func() tea.Msg {
+		ext := strings.ToLower(filepath.Ext(src))
+		target := targetForExt(ext)
 		dest := filepath.Join(filepath.Dir(src),
-			strings.TrimSuffix(filepath.Base(src), filepath.Ext(src))+".mp3")
+			strings.TrimSuffix(filepath.Base(src), filepath.Ext(src))+target.ext)
 
 		if _, err := os.Stat(dest); err == nil {
 			return convertSkippedMsg{src}
@@ -30,15 +53,15 @@ func convertFile(ctx context.Context, src string) tea.Cmd {
 
 		// ogg/opus store user tags in stream-level metadata (Vorbis Comments),
 		// so they must be mapped to global output metadata explicitly.
-		// m4a stores tags at the container level, so -map_metadata 0 suffices.
+		// m4a and wav store tags at the container level, so -map_metadata 0 suffices.
 		metaArgs := []string{"-map_metadata", "0"}
-		ext := strings.ToLower(filepath.Ext(src))
 		if ext == ".opus" || ext == ".ogg" {
 			metaArgs = []string{"-map_metadata:g", "0:s:0"}
 		}
 
 		args := append([]string{"-y", "-i", src}, metaArgs...)
-		args = append(args, "-codec:a", "libmp3lame", "-qscale:a", "2", dest)
+		args = append(args, target.codecArgs...)
+		args = append(args, dest)
 		cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 		cmd.Stdout = nil
 		cmd.Stderr = nil
