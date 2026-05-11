@@ -30,7 +30,9 @@ route them through `model.go`. All styles belong in `styles.go`.
 | `keys.go`       | Key event dispatch; per-mode key handler functions   |
 | `browser.go`    | File system browser component                        |
 | `converter.go`  | FFmpeg subprocess wrapper; bulk conversion logic     |
-| `tagger.go`     | ID3 tag editor component (single and bulk)           |
+| `tagger.go`     | Tag editor component (single and bulk; format-agnostic) |
+| `tags.go`       | Tag I/O dispatch; MP3 (ID3) and FLAC (Vorbis) backends |
+| `formats.go`    | Audio extension sets (`audioExts`, `convertibleExts`, `blessedExts`) and predicates |
 | `commands.go`   | Command bar component; command parsing and dispatch  |
 | `claude.go`     | Smart tag lookup via the Anthropic Messages API      |
 | `help.go`       | Help screen view rendering                           |
@@ -61,9 +63,13 @@ For full detail on each module, see [architecture.md](./architecture.md).
   bulk conversion flow, cancellation: §2.4
 - **`tagger.go`** — single-file and bulk tag flows, tab completion,
   view layout: §2.5
+- **`tags.go`** — `readTags`/`writeTags` dispatch, MP3 and FLAC
+  backends, Vorbis Comment key mapping: §2.6
 - **`commands.go`** — command parsing, tab completion, dispatch
-  table: §2.6
-- **`claude.go`** — API request/response flow, test overrides: §2.7
+  table: §2.7
+- **`claude.go`** — API request/response flow, test overrides: §2.8
+- **`formats.go`** — extension sets and predicates: §2.3 (audio
+  file detection)
 - **`styles.go`** — full style listing: §6
 - **Message flow diagrams** (conversion, bulk tag, smart tag,
   cancellation): §3

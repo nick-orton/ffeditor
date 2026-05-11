@@ -200,11 +200,19 @@ var audioExts = extSet{
     ".opus": {}, ".m4a": {}, ".ogg": {}, ".aac": {}, ".wav": {},
 }
 
+var convertibleExts = extSet{".opus": {}, ".m4a": {}, ".ogg": {}, ".aac": {}, ".wav": {}}
+
 var blessedExts = extSet{".mp3": {}, ".flac": {}}
 
-func isAudio(name string) bool   { return audioExts.contains(name) }
-func isBlessed(name string) bool { return blessedExts.contains(name) }
+func isAudio(name string) bool       { return audioExts.contains(name) }
+func isConvertible(name string) bool { return convertibleExts.contains(name) }
+func isBlessed(name string) bool     { return blessedExts.contains(name) }
 ```
+
+`convertibleExts` identifies formats that can be converted to a blessed
+format (WAV → FLAC; others → MP3). `isConvertible` is used by
+`buildConvertList` to gather the input file list for the `convert`
+command.
 
 `blessedExts` identifies formats that support tag editing (MP3 and
 FLAC). `isBlessed` is used to filter files for the `:tag`, `:edit`,
@@ -575,16 +583,18 @@ one match. No cycling.
 
 **Dispatch table** (handled in `model.go`'s `dispatchCommand`):
 
-| Command     | Validation                    | Behaviour                       |
-|-------------|-------------------------------|---------------------------------|
-| `convert`   | ffmpeg available; has targets | Emits `execConvertMsg`          |
-| `tag`       | Selection has blessed files   | Emits `execTagMsg`              |
-| `cd`        | Path is an existing directory | Calls `browser.changeDir`       |
-| `q`         | —                             | Returns `tea.Quit`              |
-| `smart-tag` | Selection has blessed files   | Sets `modeSmartTagging`; Cmd    |
+| Command     | Validation                       | Behaviour                       |
+|-------------|----------------------------------|---------------------------------|
+| `convert`   | ffmpeg available; has convertible files | Emits `execConvertMsg`   |
+| `tag`       | Selection has blessed files      | Emits `execTagMsg`              |
+| `edit`      | Selection has blessed files      | Alias for `tag`                 |
+| `cd`        | Path is an existing directory    | Calls `browser.changeDir`; no arg → home dir; supports `~` expansion |
+| `q`         | —                                | Returns `tea.Quit`              |
+| `smart-tag` | Selection has blessed files      | Sets `modeSmartTagging`; Cmd    |
 
 `smart-tag` is key-only (`Ctrl+T` in `modeBrowse`) and is not in
-`knownCommands`, so it does not appear in tab completion.
+`knownCommands`, so it does not appear in tab completion. `edit` is
+a tab-completable synonym for `tag`.
 
 Unknown commands → set `statusMsg` to `"Unknown command: foo"`.
 
