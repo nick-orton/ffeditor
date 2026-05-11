@@ -23,7 +23,7 @@ formats, and edits ID3 metadata — all from within a single interface.
   the host)
 - **Tag I/O:** [bogem/id3v2](https://github.com/bogem/id3v2)
   (MP3 ID3 tags), [go-flac/go-flac](https://github.com/go-flac/go-flac)
-  + [go-flac/flacvorbis](https://github.com/go-flac/flacvorbis)
+  and [go-flac/flacvorbis](https://github.com/go-flac/flacvorbis)
   (FLAC Vorbis Comments) — all pure Go, no CGo
 - **Smart tag lookup:** Anthropic Messages API (`claude-haiku-4-5`);
   requires `ANTHROPIC_API_KEY` environment variable
@@ -127,24 +127,34 @@ the display stays current without a manual reload.
 
 ### 2. Audio Conversion
 
-Converts audio files to `.mp3` by shelling out to `ffmpeg`.
+Converts audio files by shelling out to `ffmpeg`. The output format
+depends on the source:
 
-Supported formats: `.opus`, `.ogg`, `.m4a`
+- `.wav` (lossless PCM) → `.flac` (lossless, preserves quality)
+- `.opus`, `.ogg`, `.m4a`, `.aac` → `.mp3`
+
+Supported input formats: `.opus`, `.ogg`, `.m4a`, `.aac`, `.wav`
 
 #### Single file
 
 Place the cursor on a file (or `Space`-select it) and run `:convert`.
-The tool executes:
+Example (opus → mp3):
 
 ```text
 ffmpeg -y -i input.opus -map_metadata:g 0:s:0 \
     -codec:a libmp3lame -qscale:a 2 output.mp3
 ```
 
-- Output file is placed in the same directory with the `.mp3`
-  extension.
+Example (wav → flac):
+
+```text
+ffmpeg -y -i input.wav -map_metadata 0 -codec:a flac output.flac
+```
+
+- Output file is placed in the same directory with the appropriate
+  extension (`.mp3` or `.flac`).
 - Source file is kept (not deleted).
-- Metadata from the source file is copied into the output ID3 tag
+- Metadata from the source file is copied into the output tag
   (see [Metadata copying](#metadata-copying) below).
 
 #### Bulk convert
@@ -155,19 +165,19 @@ Select a directory (or multi-select files) and run `:convert`.
 - Duplicate paths are deduplicated before conversion begins.
 - Converts each file sequentially (one ffmpeg process at a time),
   showing a progress count in the status bar: `Converting 3/17...`
-- Skips files that already have a corresponding `.mp3` in the same
-  directory.
+- Skips files that already have a corresponding output file (`.mp3`
+  or `.flac`) in the same directory.
 - On error, records the failure and continues with the next file.
 - On completion:
   `Conversion complete (N converted, M skipped, E errors)`.
 - The browser directory is refreshed automatically when conversion
-  finishes so new `.mp3` files appear immediately.
+  finishes so new files appear immediately.
 
 #### Metadata copying
 
 When converting, the tool copies metadata from the source file into
-the ID3 tag of the output `.mp3`. The six standard fields — Title,
-Artist, Album, Year, Track, and Genre — are preserved where present.
+the output tag. The six standard fields — Title, Artist, Album, Year,
+Track, and Genre — are preserved where present.
 
 Different container formats store tags at different levels, so the
 `-map_metadata` flag passed to `ffmpeg` varies by extension:
@@ -175,12 +185,13 @@ Different container formats store tags at different levels, so the
 | Format  | Tag storage                | ffmpeg flag                  |
 |---------|----------------------------|------------------------------|
 | `.m4a`  | Container atoms (global)   | `-map_metadata 0`            |
+| `.wav`  | Container chunks (global)  | `-map_metadata 0`            |
 | `.opus` | Vorbis Comments (stream)   | `-map_metadata:g 0:s:0`      |
 | `.ogg`  | Vorbis Comments (stream)   | `-map_metadata:g 0:s:0`      |
 
 The `:g` specifier on the output side ensures all tags land in the
-global (file-level) ID3 header rather than being attached to the
-audio stream.
+global (file-level) header rather than being attached to the audio
+stream.
 
 #### Cancellation
 
