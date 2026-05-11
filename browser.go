@@ -55,6 +55,8 @@ func truncateRunes(s string, max int) string {
 type browserModel struct {
 	dir        string
 	entries    []os.DirEntry
+	visible    []os.DirEntry
+	filterInput string
 	tagCache   map[string]tagSummary
 	cursor     int
 	offset     int
@@ -93,6 +95,7 @@ func newBrowserModel(dir string) browserModel {
 		entries = filterEntries(entries, false)
 		sortEntries(entries)
 		m.entries = entries
+		m.visible = entries
 		m.tagCache = loadTagCache(entries, dir)
 	}
 	return m
@@ -123,6 +126,8 @@ func (m browserModel) changeDir(dir string) (browserModel, tea.Cmd) {
 	sortEntries(entries)
 	m.dir = dir
 	m.entries = entries
+	m.visible = entries
+	m.filterInput = ""
 	m.tagCache = loadTagCache(entries, dir)
 	m.cursor = 0
 	m.offset = 0
@@ -133,10 +138,10 @@ func (m browserModel) changeDir(dir string) (browserModel, tea.Cmd) {
 // scroll moves the cursor by delta rows, clamping to valid bounds and
 // adjusting the viewport offset to keep the cursor visible.
 func (m browserModel) scroll(delta int) browserModel {
-	if len(m.entries) == 0 {
+	if len(m.visible) == 0 {
 		return m
 	}
-	m.cursor = max(0, min(m.cursor+delta, len(m.entries)-1))
+	m.cursor = max(0, min(m.cursor+delta, len(m.visible)-1))
 	if m.cursor < m.offset {
 		m.offset = m.cursor
 	}
@@ -152,11 +157,42 @@ func (m browserModel) goToFirst() browserModel {
 	return m
 }
 
-func (m browserModel) goToLast() browserModel {
-	if len(m.entries) == 0 {
+func (m browserModel) applyFilter(query string) browserModel {
+	m.filterInput = query
+	m.selected = make(map[int]bool)
+	if query == "" {
+		m.visible = m.entries
+		m.cursor = 0
+		m.offset = 0
 		return m
 	}
-	m.cursor = len(m.entries) - 1
+	q := strings.ToLower(query)
+	var result []os.DirEntry
+	for _, e := range m.entries {
+		if strings.Contains(strings.ToLower(e.Name()), q) {
+			result = append(result, e)
+		}
+	}
+	m.visible = result
+	m.cursor = 0
+	m.offset = 0
+	return m
+}
+
+func (m browserModel) clearFilter() browserModel {
+	m.filterInput = ""
+	m.visible = m.entries
+	m.selected = make(map[int]bool)
+	m.cursor = 0
+	m.offset = 0
+	return m
+}
+
+func (m browserModel) goToLast() browserModel {
+	if len(m.visible) == 0 {
+		return m
+	}
+	m.cursor = len(m.visible) - 1
 	if m.height > 0 && m.cursor >= m.height {
 		m.offset = m.cursor - m.height + 1
 	}
@@ -189,8 +225,8 @@ func (m browserModel) Update(msg tea.Msg) (browserModel, tea.Cmd) {
 		case "ctrl+d":
 			m = m.scroll(max(m.height/2, 1))
 		case "enter":
-			if len(m.entries) > 0 {
-				entry := m.entries[m.cursor]
+			if len(m.visible) > 0 {
+				entry := m.visible[m.cursor]
 				if entry.IsDir() || isSymlinkToDir(entry, m.dir) {
 					return m.changeDir(filepath.Join(m.dir, entry.Name()))
 				}
@@ -200,7 +236,7 @@ func (m browserModel) Update(msg tea.Msg) (browserModel, tea.Cmd) {
 			if parent != m.dir {
 				childName := filepath.Base(m.dir)
 				m, cmd := m.changeDir(parent)
-				for i, e := range m.entries {
+				for i, e := range m.visible {
 					if e.Name() == childName {
 						m.cursor = i
 						if m.height > 0 && m.cursor >= m.offset+m.height {
@@ -212,8 +248,8 @@ func (m browserModel) Update(msg tea.Msg) (browserModel, tea.Cmd) {
 				return m, cmd
 			}
 		case "l":
-			if len(m.entries) > 0 {
-				entry := m.entries[m.cursor]
+			if len(m.visible) > 0 {
+				entry := m.visible[m.cursor]
 				if entry.IsDir() || isSymlinkToDir(entry, m.dir) {
 					return m.changeDir(filepath.Join(m.dir, entry.Name()))
 				}
@@ -222,7 +258,7 @@ func (m browserModel) Update(msg tea.Msg) (browserModel, tea.Cmd) {
 			m.showHidden = !m.showHidden
 			return m.changeDir(m.dir)
 		case " ":
-			if len(m.entries) > 0 {
+			if len(m.visible) > 0 {
 				m.selected[m.cursor] = !m.selected[m.cursor]
 				if !m.selected[m.cursor] {
 					delete(m.selected, m.cursor)
@@ -230,7 +266,7 @@ func (m browserModel) Update(msg tea.Msg) (browserModel, tea.Cmd) {
 				m = m.scroll(1)
 			}
 		case "ctrl+a":
-			for i := range m.entries {
+			for i := range m.visible {
 				m.selected[i] = true
 			}
 		}
@@ -240,13 +276,13 @@ func (m browserModel) Update(msg tea.Msg) (browserModel, tea.Cmd) {
 
 func (m browserModel) selectedEntries() []os.DirEntry {
 	if len(m.selected) == 0 {
-		if len(m.entries) == 0 {
+		if len(m.visible) == 0 {
 			return nil
 		}
-		return []os.DirEntry{m.entries[m.cursor]}
+		return []os.DirEntry{m.visible[m.cursor]}
 	}
 	var result []os.DirEntry
-	for i, entry := range m.entries {
+	for i, entry := range m.visible {
 		if m.selected[i] {
 			result = append(result, entry)
 		}
@@ -262,12 +298,12 @@ func (m browserModel) View(width, height int) string {
 	var lines []string
 
 	end := m.offset + height
-	if end > len(m.entries) {
-		end = len(m.entries)
+	if end > len(m.visible) {
+		end = len(m.visible)
 	}
 
 	for i := m.offset; i < end; i++ {
-		entry := m.entries[i]
+		entry := m.visible[i]
 		name := entry.Name()
 
 		prefix := "  "

@@ -338,6 +338,104 @@ func TestSelectAll_SelectsAllEntries(t *testing.T) {
 	}
 }
 
+func TestApplyFilter_SubsetMatchesCaseInsensitive(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"Aardvark.mp3", "banana.flac", "Berry.mp3", "cherry.mp3"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m := newBrowserModel(dir)
+	m = m.applyFilter("b")
+
+	if m.filterInput != "b" {
+		t.Errorf("expected filterInput 'b', got %q", m.filterInput)
+	}
+	if len(m.visible) != 2 {
+		t.Fatalf("expected 2 visible entries, got %d", len(m.visible))
+	}
+	names := map[string]bool{}
+	for _, e := range m.visible {
+		names[e.Name()] = true
+	}
+	if !names["banana.flac"] || !names["Berry.mp3"] {
+		t.Errorf("unexpected visible entries: %v", m.visible)
+	}
+	if m.cursor != 0 || m.offset != 0 {
+		t.Errorf("expected cursor/offset reset to 0, got cursor=%d offset=%d", m.cursor, m.offset)
+	}
+	// entries unchanged
+	if len(m.entries) != 4 {
+		t.Errorf("expected 4 entries (unfiltered), got %d", len(m.entries))
+	}
+}
+
+func TestApplyFilter_EmptyQueryRestoresAll(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.mp3", "b.mp3", "c.mp3"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m := newBrowserModel(dir)
+	m = m.applyFilter("a")
+	if len(m.visible) != 1 {
+		t.Fatalf("pre-condition: expected 1 visible after filter 'a', got %d", len(m.visible))
+	}
+
+	m = m.applyFilter("")
+	if len(m.visible) != 3 {
+		t.Errorf("expected all 3 entries visible after empty filter, got %d", len(m.visible))
+	}
+	if m.filterInput != "" {
+		t.Errorf("expected empty filterInput, got %q", m.filterInput)
+	}
+}
+
+func TestClearFilter_RestoresAll(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.mp3", "b.mp3", "c.mp3"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m := newBrowserModel(dir)
+	m = m.applyFilter("b")
+	m.cursor = 0
+
+	m = m.clearFilter()
+	if len(m.visible) != 3 {
+		t.Errorf("expected 3 visible after clearFilter, got %d", len(m.visible))
+	}
+	if m.filterInput != "" {
+		t.Errorf("expected empty filterInput, got %q", m.filterInput)
+	}
+	if m.cursor != 0 || m.offset != 0 {
+		t.Errorf("expected cursor/offset 0, got cursor=%d offset=%d", m.cursor, m.offset)
+	}
+}
+
+func TestSelectedEntries_UsesVisible(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"alpha.mp3", "beta.mp3", "gamma.mp3"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m := newBrowserModel(dir)
+	m = m.applyFilter("b")
+	// visible = [beta.mp3], cursor = 0
+
+	result := m.selectedEntries()
+	if len(result) != 1 || result[0].Name() != "beta.mp3" {
+		t.Errorf("selectedEntries should return visible[cursor], got %v", result)
+	}
+}
+
 func TestScrolling(t *testing.T) {
 	dir := t.TempDir()
 	for i := 0; i < 10; i++ {

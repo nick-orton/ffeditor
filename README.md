@@ -65,6 +65,23 @@ directory if none is provided.
 Press `?` at any time to open an in-app help screen listing all
 keybindings. Press any key to dismiss it.
 
+## Filter
+
+Press `/` to start filtering the file list. As you type, the browser
+narrows to entries whose names contain the typed text
+(case-insensitive). Arrow keys still navigate the filtered list while
+you type.
+
+| Key      | Action                                           |
+|----------|--------------------------------------------------|
+| `/`      | Start filter mode                                |
+| `↑` / `↓` | Navigate filtered results while typing         |
+| `Enter`  | Apply filter and return to normal navigation     |
+| `Esc`    | Clear filter and restore full listing            |
+
+When a filter is active (applied with `Enter`), the command bar shows
+`filter: <query>`. Press `Esc` in browse mode to remove it.
+
 ## Command Bar
 
 Press `:` to open the command bar. Type a command and press `Enter` to

@@ -75,6 +75,7 @@ const (
     modeTagSearching
     modeHelp
     modeSmartTagging
+    modeFilter
 )
 
 type model struct {
@@ -99,15 +100,16 @@ type model struct {
 
 **Message routing rules:**
 
-| `m.mode`           | To        | Notes                               |
-|--------------------|-----------|-------------------------------------|
-| `modeBrowse`       | `browser` | `:` cmd; `q` quit; `c`/`e`/`Ctrl+T` dispatch |
-| `modeCommand`      | `cmdbar`  | `Enter` dispatches; `Esc` exits     |
-| `modeTag`          | `tagger`  | `Ctrl+T` searches; `Ctrl+S` saves   |
-| `modeTagSaving`    | —         | Input blocked; spinner shown        |
-| `modeTagSearching` | —         | Input blocked; spinner shown        |
-| `modeHelp`         | —         | Any key returns to `modeBrowse`     |
-| `modeSmartTagging` | —         | Input blocked; spinner; browser view |
+| `m.mode`           | To        | Notes                            |
+|--------------------|-----------|----------------------------------|
+| `modeBrowse`       | `browser` | `:` cmd; `q`/`c`/`e`/`Ctrl+T`   |
+| `modeCommand`      | `cmdbar`  | `Enter` dispatches; `Esc` exits  |
+| `modeFilter`       | `browser` | Letters filter; arrows navigate  |
+| `modeTag`          | `tagger`  | `Ctrl+T` search; `Ctrl+S` save   |
+| `modeTagSaving`    | —         | Input blocked; spinner           |
+| `modeTagSearching` | —         | Input blocked; spinner           |
+| `modeHelp`         | —         | Any key → `modeBrowse`           |
+| `modeSmartTagging` | —         | Input blocked; spinner           |
 
 All modes receive `tea.WindowSizeMsg` for responsive layout. Custom
 messages (conversion progress, completion, errors) are handled at the
@@ -147,15 +149,17 @@ it can render correctly.
 
 ```go
 type browserModel struct {
-    dir        string                  // current absolute directory path
-    entries    []os.DirEntry           // current visible listing (filtered)
-    tagCache   map[string]tagSummary   // cached Artist/Title for blessed files
-    cursor     int                     // index of highlighted entry
-    offset     int                     // scroll offset for viewport
-    selected   map[int]bool            // indices toggled with Space
-    height     int                     // visible rows (set by parent)
-    showHidden bool                    // when true, dotfiles are included
-    pendingG   bool                    // true after first 'g', waiting for 'gg'
+    dir         string                  // current absolute directory path
+    entries     []os.DirEntry           // full listing (source of truth)
+    visible     []os.DirEntry           // displayed subset (filtered or full)
+    filterInput string                  // active filter; empty when none
+    tagCache    map[string]tagSummary   // cached Artist/Title for blessed files
+    cursor      int                     // index into visible of highlighted entry
+    offset      int                     // scroll offset for viewport
+    selected    map[int]bool            // indices into visible toggled with Space
+    height      int                     // visible rows (set by parent)
+    showHidden  bool                    // when true, dotfiles are included
+    pendingG    bool                    // true after first 'g', waiting for 'gg'
 }
 ```
 
@@ -187,7 +191,7 @@ type browserModel struct {
 **Selection:**
 
 - `Space` toggles `selected[cursor]`; `Ctrl+A` selects all entries.
-- Selection is cleared on directory change.
+- Selection is cleared on directory change and when entering filter mode.
 - `selectedEntries()` returns `[]os.DirEntry` of toggled items. If
   nothing is toggled, returns a slice containing only the cursor entry
   — this provides unified handling for single vs. multi operations.
@@ -200,7 +204,9 @@ var audioExts = extSet{
     ".opus": {}, ".m4a": {}, ".ogg": {}, ".aac": {}, ".wav": {},
 }
 
-var convertibleExts = extSet{".opus": {}, ".m4a": {}, ".ogg": {}, ".aac": {}, ".wav": {}}
+var convertibleExts = extSet{
+    ".opus": {}, ".m4a": {}, ".ogg": {}, ".aac": {}, ".wav": {},
+}
 
 var blessedExts = extSet{".mp3": {}, ".flac": {}}
 
@@ -237,21 +243,23 @@ available; shown as `—` for untagged files).
 
 **Key handling:**
 
-| Key          | Action                                             |
-|--------------|----------------------------------------------------|
-| `j` / `Down` | `cursor++` (clamp to len-1)                        |
-| `k` / `Up`   | `cursor--` (clamp to 0)                            |
-| `gg`         | Go to first entry (`pendingG` flag detects double) |
-| `G`          | Go to last entry                                   |
-| `Ctrl+U`     | Page up (half screen)                              |
-| `Ctrl+D`     | Page down (half screen)                            |
-| `Enter`      | If dir or symlink-to-dir: `cd` in. File: no-op     |
-| `h`          | `cd` to parent; cursor placed on child we came from|
-| `l`          | Same as `Enter`                                    |
-| `i`          | Toggle `showHidden`; reload dir via `changeDir`    |
-| `Space`      | Toggle `selected[cursor]`, advance cursor          |
-| `Ctrl+A`     | Set `selected[i] = true` for all `i` in entries   |
-| `Ctrl+T`     | Dispatch `smart-tag` command                       |
+| Key          | Action                                              |
+|--------------|-----------------------------------------------------|
+| `j` / `Down` | `cursor++` (clamp to len-1)                         |
+| `k` / `Up`   | `cursor--` (clamp to 0)                             |
+| `gg`         | Go to first entry (`pendingG` flag detects double)  |
+| `G`          | Go to last entry                                    |
+| `Ctrl+U`     | Page up (half screen)                               |
+| `Ctrl+D`     | Page down (half screen)                             |
+| `Enter`      | If dir or symlink-to-dir: `cd` in. File: no-op      |
+| `h`          | `cd` to parent; cursor placed on child we came from |
+| `l`          | Same as `Enter`                                     |
+| `i`          | Toggle `showHidden`; reload dir via `changeDir`     |
+| `Space`      | Toggle `selected[cursor]`, advance cursor           |
+| `Ctrl+A`     | Set `selected[i] = true` for all `i` in `visible`  |
+| `Ctrl+T`     | Dispatch `smart-tag` command                        |
+| `/`          | Enter `modeFilter`; clears selection                |
+| `Esc`        | Clear active filter (browse mode only)              |
 
 On directory change, emit a custom `dirChangedMsg{path}` so the root
 model can update the header.
@@ -583,14 +591,14 @@ one match. No cycling.
 
 **Dispatch table** (handled in `model.go`'s `dispatchCommand`):
 
-| Command     | Validation                       | Behaviour                       |
-|-------------|----------------------------------|---------------------------------|
-| `convert`   | ffmpeg available; has convertible files | Emits `execConvertMsg`   |
-| `tag`       | Selection has blessed files      | Emits `execTagMsg`              |
-| `edit`      | Selection has blessed files      | Alias for `tag`                 |
-| `cd`        | Path is an existing directory    | Calls `browser.changeDir`; no arg → home dir; supports `~` expansion |
-| `q`         | —                                | Returns `tea.Quit`              |
-| `smart-tag` | Selection has blessed files      | Sets `modeSmartTagging`; Cmd    |
+| Command     | Validation                  | Behaviour                       |
+|-------------|-----------------------------|---------------------------------|
+| `convert`   | ffmpeg; convertible files   | Emits `execConvertMsg`          |
+| `tag`       | Blessed files selected      | Emits `execTagMsg`              |
+| `edit`      | Blessed files selected      | Alias for `tag`                 |
+| `cd`        | Valid directory             | `browser.changeDir`; `~` ok     |
+| `q`         | —                           | Returns `tea.Quit`              |
+| `smart-tag` | Blessed files selected      | Sets `modeSmartTagging`; Cmd    |
 
 `smart-tag` is key-only (`Ctrl+T` in `modeBrowse`) and is not in
 `knownCommands`, so it does not appear in tab completion. `edit` is
