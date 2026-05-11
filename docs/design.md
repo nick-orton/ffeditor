@@ -82,6 +82,8 @@ claude.go            — Anthropic API call for smart tag lookup
 | `c`           | Convert selected audio files to `.mp3`          |
 | `Ctrl+T`      | Fill missing tags (smart tags) for `.mp3`/`.flac`|
 | `?`           | Show help screen (any key to dismiss)           |
+| `/`           | Start filter mode — type to narrow the listing  |
+| `Esc`         | Clear active filter (in browse mode)            |
 | `:`           | Focus command bar                               |
 | `Ctrl+C`      | Cancel in-progress conversion (stay in app)     |
 | `q`           | Quit                                            |
@@ -277,6 +279,27 @@ Works on a single file (cursor) or any number of space-selected files.
 - On completion, the status bar shows `Smart tags applied (N files)`
   and the tag summary column in the browser refreshes automatically.
 - Requires `ANTHROPIC_API_KEY`. Shows an error if unset.
+
+### 5. Filter
+
+Press `/` in the file browser to enter filter mode. Type characters to
+narrow the listing in real-time; only entries whose filenames contain
+the typed text are shown (case-insensitive substring match). Arrow keys
+navigate the filtered results while typing.
+
+```text
+a.mp3          a.mp3          bb.mp3
+b.mp3    /b→   b.mp3   /bb→
+bb.mp3         bb.mp3
+c.mp3
+```
+
+- **Enter** applies the filter and returns to browse mode. The filtered
+  view stays active; `filter: <query>` is shown in the command bar.
+- **Esc** in filter mode cancels and restores the full listing.
+- **Esc** in browse mode clears an applied filter.
+- Entering filter mode clears any existing selection.
+- Changing directories clears the filter automatically.
 
 ## Commands
 
