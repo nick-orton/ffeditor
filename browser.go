@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strings"
 
-	id3 "github.com/bogem/id3v2/v2"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -15,15 +14,6 @@ type dirChangedMsg struct{ path string }
 type dirReadErrMsg struct {
 	path string
 	err  error
-}
-
-var audioExts = map[string]bool{
-	".mp3": true, ".opus": true, ".m4a": true,
-	".flac": true, ".ogg": true,
-}
-
-func isAudio(name string) bool {
-	return audioExts[strings.ToLower(filepath.Ext(name))]
 }
 
 type tagSummary struct {
@@ -43,19 +33,10 @@ func (t tagSummary) display() string {
 	return ""
 }
 
-func readTagSummary(path string) tagSummary {
-	tag, err := id3.Open(path, id3.Options{Parse: true})
-	if err != nil {
-		return tagSummary{}
-	}
-	defer tag.Close()
-	return tagSummary{artist: tag.Artist(), title: tag.Title()}
-}
-
 func loadTagCache(entries []os.DirEntry, dir string) map[string]tagSummary {
 	cache := make(map[string]tagSummary)
 	for _, e := range entries {
-		if !e.IsDir() && strings.ToLower(filepath.Ext(e.Name())) == ".mp3" {
+		if !e.IsDir() && isBlessed(e.Name()) {
 			cache[e.Name()] = readTagSummary(filepath.Join(dir, e.Name()))
 		}
 	}
@@ -149,22 +130,18 @@ func (m browserModel) changeDir(dir string) (browserModel, tea.Cmd) {
 	return m, func() tea.Msg { return dirChangedMsg{dir} }
 }
 
-func (m browserModel) scrollUp() browserModel {
-	if m.cursor > 0 {
-		m.cursor--
-		if m.cursor < m.offset {
-			m.offset = m.cursor
-		}
+// scroll moves the cursor by delta rows, clamping to valid bounds and
+// adjusting the viewport offset to keep the cursor visible.
+func (m browserModel) scroll(delta int) browserModel {
+	if len(m.entries) == 0 {
+		return m
 	}
-	return m
-}
-
-func (m browserModel) scrollDown() browserModel {
-	if m.cursor < len(m.entries)-1 {
-		m.cursor++
-		if m.height > 0 && m.cursor >= m.offset+m.height {
-			m.offset = m.cursor - m.height + 1
-		}
+	m.cursor = max(0, min(m.cursor+delta, len(m.entries)-1))
+	if m.cursor < m.offset {
+		m.offset = m.cursor
+	}
+	if m.height > 0 && m.cursor >= m.offset+m.height {
+		m.offset = m.cursor - m.height + 1
 	}
 	return m
 }
@@ -186,41 +163,6 @@ func (m browserModel) goToLast() browserModel {
 	return m
 }
 
-func (m browserModel) pageUp() browserModel {
-	if m.height <= 0 || len(m.entries) == 0 {
-		return m
-	}
-	step := m.height / 2
-	if step < 1 {
-		step = 1
-	}
-	m.cursor -= step
-	if m.cursor < 0 {
-		m.cursor = 0
-	}
-	if m.cursor < m.offset {
-		m.offset = m.cursor
-	}
-	return m
-}
-
-func (m browserModel) pageDown() browserModel {
-	if m.height <= 0 || len(m.entries) == 0 {
-		return m
-	}
-	step := m.height / 2
-	if step < 1 {
-		step = 1
-	}
-	m.cursor += step
-	if m.cursor >= len(m.entries) {
-		m.cursor = len(m.entries) - 1
-	}
-	if m.height > 0 && m.cursor >= m.offset+m.height {
-		m.offset = m.cursor - m.height + 1
-	}
-	return m
-}
 
 func (m browserModel) Update(msg tea.Msg) (browserModel, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -235,17 +177,17 @@ func (m browserModel) Update(msg tea.Msg) (browserModel, tea.Cmd) {
 		}
 		switch key {
 		case "j", "down":
-			m = m.scrollDown()
+			m = m.scroll(1)
 		case "k", "up":
-			m = m.scrollUp()
+			m = m.scroll(-1)
 		case "g":
 			m.pendingG = true
 		case "G":
 			m = m.goToLast()
 		case "ctrl+u":
-			m = m.pageUp()
+			m = m.scroll(-max(m.height/2, 1))
 		case "ctrl+d":
-			m = m.pageDown()
+			m = m.scroll(max(m.height/2, 1))
 		case "enter":
 			if len(m.entries) > 0 {
 				entry := m.entries[m.cursor]
@@ -285,7 +227,7 @@ func (m browserModel) Update(msg tea.Msg) (browserModel, tea.Cmd) {
 				if !m.selected[m.cursor] {
 					delete(m.selected, m.cursor)
 				}
-				m = m.scrollDown()
+				m = m.scroll(1)
 			}
 		case "ctrl+a":
 			for i := range m.entries {
@@ -349,6 +291,8 @@ func (m browserModel) View(width, height int) string {
 			} else {
 				styledName = styleSymlink.Render(name + "@")
 			}
+		case isBlessed(name):
+			styledName = styleBlessed.Render(name)
 		case isAudio(name):
 			styledName = styleAudio.Render(name)
 		case strings.HasPrefix(name, "."):
@@ -384,8 +328,7 @@ func (m browserModel) tagColumn(name string, nameWidth, totalWidth int) string {
 	if available < minTagWidth {
 		return ""
 	}
-	ext := strings.ToLower(filepath.Ext(name))
-	if ext != ".mp3" {
+	if !isBlessed(name) {
 		return ""
 	}
 	summary, ok := m.tagCache[name]

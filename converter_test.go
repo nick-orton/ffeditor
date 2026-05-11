@@ -45,6 +45,16 @@ func TestMain(m *testing.M) {
 			cmd.Stderr = nil
 			_ = cmd.Run()
 		}
+
+		const wavFixture = "testdata/silence.wav"
+		if _, err := os.Stat(wavFixture); os.IsNotExist(err) {
+			cmd := exec.Command("ffmpeg",
+				"-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono",
+				"-t", "0.5", wavFixture)
+			cmd.Stdout = nil
+			cmd.Stderr = nil
+			_ = cmd.Run()
+		}
 	}
 	os.Exit(m.Run())
 }
@@ -195,6 +205,56 @@ func TestConvertAacToMp3(t *testing.T) {
 	}
 	if info.Size() == 0 {
 		t.Error("output mp3 is empty")
+	}
+}
+
+// copyWavFixture copies testdata/silence.wav into dst and returns the new path.
+func copyWavFixture(t *testing.T, dst string) string {
+	t.Helper()
+	if _, err := os.Stat("testdata/silence.wav"); os.IsNotExist(err) {
+		t.Skip("testdata/silence.wav not found")
+	}
+	in, err := os.Open("testdata/silence.wav")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer in.Close()
+
+	dest := filepath.Join(dst, "silence.wav")
+	out, err := os.Create(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, in); err != nil {
+		t.Fatal(err)
+	}
+	return dest
+}
+
+func TestConvertWavToFlac(t *testing.T) {
+	skipIfNoFFmpeg(t)
+
+	dir := t.TempDir()
+	src := copyWavFixture(t, dir)
+
+	msg := convertFile(context.Background(), src)()
+	done, ok := msg.(convertDoneMsg)
+	if !ok {
+		t.Fatalf("expected convertDoneMsg, got %T: %v", msg, msg)
+	}
+
+	if filepath.Ext(done.dest) != ".flac" {
+		t.Errorf("expected .flac output, got %q", done.dest)
+	}
+
+	info, err := os.Stat(done.dest)
+	if err != nil {
+		t.Fatalf("flac not found: %v", err)
+	}
+	if info.Size() == 0 {
+		t.Error("output flac is empty")
 	}
 }
 

@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	id3 "github.com/bogem/id3v2/v2"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -36,9 +35,7 @@ func cmdCd(m model, args []string) (model, tea.Cmd) {
 	if len(args) == 0 {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			m.statusMsg = "Could not determine home directory"
-			m.statusIsError = true
-			return m, nil
+			return m.withError("Could not determine home directory"), nil
 		}
 		target = home
 	} else {
@@ -51,75 +48,61 @@ func cmdCd(m model, args []string) (model, tea.Cmd) {
 		var err error
 		target, err = filepath.Abs(target)
 		if err != nil {
-			m.statusMsg = "Not a directory: " + args[0]
-			m.statusIsError = true
-			return m, nil
+			return m.withError("Not a directory: "+args[0]), nil
 		}
 	}
 	info, err := os.Stat(target)
 	if err != nil || !info.IsDir() {
-		m.statusMsg = "Not a directory: " + target
-		m.statusIsError = true
-		return m, nil
+		return m.withError("Not a directory: "+target), nil
 	}
 	var teaCmd tea.Cmd
 	m.browser, teaCmd = m.browser.changeDir(target)
-	m.statusMsg = ""
-	m.statusIsError = false
+	m = m.withMessage("")
 	return m, teaCmd
 }
 
 func cmdConvert(m model, _ []string) (model, tea.Cmd) {
 	if !m.ffmpegAvailable {
-		m.statusMsg = "ffmpeg not available — conversion disabled"
-		m.statusIsError = true
-		return m, nil
+		return m.withError("ffmpeg not available — conversion disabled"), nil
 	}
 	entries := m.browser.selectedEntries()
 	files := buildConvertList(entries, m.browser.dir)
 	if len(files) == 0 {
-		m.statusMsg = "No convertible files selected (.opus, .m4a, .ogg, .aac)"
-		m.statusIsError = true
-		return m, nil
+		return m.withError("No convertible files selected (.opus, .m4a, .ogg, .aac, .wav)"), nil
 	}
 	return m, func() tea.Msg { return execConvertMsg{files} }
 }
 
 func cmdTagEdit(m model, _ []string) (model, tea.Cmd) {
-	entries := m.browser.selectedEntries()
-	var mp3s []string
-	for _, e := range entries {
-		if !e.IsDir() && strings.ToLower(filepath.Ext(e.Name())) == ".mp3" {
-			mp3s = append(mp3s, filepath.Join(m.browser.dir, e.Name()))
-		}
+	files := selectedBlessedFiles(m.browser.selectedEntries(), m.browser.dir)
+	if len(files) == 0 {
+		return m.withError("No editable files selected (.mp3, .flac)"), nil
 	}
-	if len(mp3s) == 0 {
-		m.statusMsg = "No .mp3 files selected"
-		m.statusIsError = true
-		return m, nil
-	}
-	return m, func() tea.Msg { return execTagMsg{mp3s} }
+	return m, func() tea.Msg { return execTagMsg{files} }
 }
 
 func cmdSmartTag(m model, _ []string) (model, tea.Cmd) {
-	entries := m.browser.selectedEntries()
-	var mp3s []string
-	for _, e := range entries {
-		if !e.IsDir() && strings.ToLower(filepath.Ext(e.Name())) == ".mp3" {
-			mp3s = append(mp3s, filepath.Join(m.browser.dir, e.Name()))
-		}
-	}
-	if len(mp3s) == 0 {
-		m.statusMsg = "No .mp3 files selected"
-		m.statusIsError = true
-		return m, nil
+	files := selectedBlessedFiles(m.browser.selectedEntries(), m.browser.dir)
+	if len(files) == 0 {
+		return m.withError("No editable files selected (.mp3, .flac)"), nil
 	}
 	m.mode = modeSmartTagging
 	m.spinnerFrame = 0
-	return m, tea.Batch(smartTagCmd(mp3s), spinnerTick())
+	return m, tea.Batch(smartTagCmd(files), spinnerTick())
 }
 
-// smartTagCmd fills missing ID3 tags (artist, title, year) for each file
+// selectedBlessedFiles returns the full paths of all selected blessed (editable) files.
+func selectedBlessedFiles(entries []os.DirEntry, dir string) []string {
+	var files []string
+	for _, e := range entries {
+		if !e.IsDir() && isBlessed(e.Name()) {
+			files = append(files, filepath.Join(dir, e.Name()))
+		}
+	}
+	return files
+}
+
+// smartTagCmd fills missing tags (artist, title, year) for each file
 // using the Claude API, without overwriting fields that are already set.
 func smartTagCmd(files []string) tea.Cmd {
 	return func() tea.Msg {
@@ -130,17 +113,13 @@ func smartTagCmd(files []string) tea.Cmd {
 
 		count := 0
 		for _, file := range files {
-			tag, err := id3.Open(file, id3.Options{Parse: true})
+			existing, err := readTags(file)
 			if err != nil {
 				continue
 			}
-			existingTitle := tag.Title()
-			existingArtist := tag.Artist()
-			existingYear := tag.Year()
-			tag.Close()
 
 			// Skip files where all three fields are already populated.
-			if existingTitle != "" && existingArtist != "" && existingYear != "" {
+			if existing.Title != "" && existing.Artist != "" && existing.Year != "" {
 				continue
 			}
 
@@ -149,28 +128,25 @@ func smartTagCmd(files []string) tea.Cmd {
 				continue
 			}
 
-			tag, err = id3.Open(file, id3.Options{Parse: true})
-			if err != nil {
-				continue
+			data := existing
+			var mask [6]bool
+			if existing.Title == "" && guessed.Title != "" {
+				data.Title = guessed.Title
+				mask[FieldTitle] = true
 			}
-			changed := false
-			if existingTitle == "" && guessed.Title != "" {
-				tag.SetTitle(guessed.Title)
-				changed = true
+			if existing.Artist == "" && guessed.Artist != "" {
+				data.Artist = guessed.Artist
+				mask[FieldArtist] = true
 			}
-			if existingArtist == "" && guessed.Artist != "" {
-				tag.SetArtist(guessed.Artist)
-				changed = true
+			if existing.Year == "" && guessed.Year != "" {
+				data.Year = guessed.Year
+				mask[FieldYear] = true
 			}
-			if existingYear == "" && guessed.Year != "" {
-				tag.SetYear(guessed.Year)
-				changed = true
+			if mask[FieldTitle] || mask[FieldArtist] || mask[FieldYear] {
+				if err := writeTags(file, data, mask); err == nil {
+					count++
+				}
 			}
-			if changed {
-				tag.Save()
-				count++
-			}
-			tag.Close()
 		}
 
 		return smartTagDoneMsg{count}

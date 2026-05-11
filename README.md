@@ -55,9 +55,9 @@ directory if none is provided.
 | `i`           | Toggle hidden files (dotfiles)                  |
 | `Space`       | Toggle selection (advances cursor)              |
 | `Ctrl+A`      | Select all entries in current directory         |
-| `e`           | Edit ID3 tags for selected `.mp3` file(s)       |
-| `c`           | Convert selected audio files to `.mp3`          |
-| `Ctrl+T`      | Fill missing tags (smart tags) for selected `.mp3` |
+| `e`           | Edit tags for selected `.mp3` / `.flac` file(s) |
+| `c`           | Convert selected audio files                    |
+| `Ctrl+T`      | Fill missing tags (smart tags) for selected files |
 | `?`           | Show help screen                                |
 | `Ctrl+C`      | Cancel in-progress conversion                   |
 | `q`           | Quit                                            |
@@ -72,9 +72,9 @@ execute, or `Esc` to cancel.
 
 | Command      | Description                                      |
 |--------------|--------------------------------------------------|
-| `:edit`      | Edit ID3 tags for selected `.mp3` file(s)        |
+| `:edit`      | Edit tags for selected `.mp3` / `.flac` file(s)  |
 | `:tag`       | Synonym for `:edit`                              |
-| `:convert`   | Convert selected audio files to `.mp3`           |
+| `:convert`   | Convert selected audio files                     |
 | `:cd <path>` | Navigate to a directory                          |
 | `:q`         | Quit                                             |
 
@@ -111,26 +111,32 @@ complete directory names:
 
 ## Audio Conversion
 
-Select one or more audio files (or a directory containing
-them) and run `:convert`. Converted `.mp3` files are written alongside
-the originals. Source files are not deleted.
+Select one or more audio files (or a directory containing them) and
+run `:convert`. Converted files are written alongside the originals.
+Source files are not deleted.
+
+The output format depends on the source:
+
+- `.wav` (lossless PCM) → `.flac` (lossless, quality preserved)
+- `.opus`, `.m4a`, `.ogg`, `.aac` → `.mp3`
 
 - **Bulk**: selecting a directory recursively finds all convertible
   files and converts them sequentially, showing `Converting N/M...`
   progress in the status bar.
-- **Skip**: files that already have a corresponding `.mp3` are skipped
-  automatically.
+- **Skip**: files that already have a corresponding output file are
+  skipped automatically.
 - **Cancel**: press `Ctrl+C` during a conversion to kill the current
   ffmpeg process and stop the queue. Files already converted are kept.
   The browser returns to normal immediately.
 - **No ffmpeg**: if `ffmpeg` is not found on `$PATH`, the app opens
   normally and `:convert` shows an error in the status bar.
-- **Supported Formats**: `.opus`, `.m4a`, `.ogg`
+- **Supported Formats**: `.opus`, `.m4a`, `.ogg`, `.aac`, `.wav`
 
-## ID3 Tag Editing
+## Tag Editing
 
-Select one or more `.mp3` files and press `e` (or run `:edit` / `:tag`)
-to open the tag editor.
+Select one or more `.mp3` or `.flac` files and press `e` (or run
+`:edit` / `:tag`) to open the tag editor. MP3 files use ID3 tags;
+FLAC files use Vorbis Comments — both expose the same six fields.
 
 ```text
 ╭─ Files ───────────────────────────────╮
@@ -169,7 +175,8 @@ fields are pre-filled with the result; non-blank fields are left
 unchanged. A spinner shows in the status bar while the model runs.
 Requires `ANTHROPIC_API_KEY` to be set.
 
-**Bulk tagging**: select multiple `.mp3` files before running `:edit`.
+**Bulk tagging**: select multiple `.mp3` or `.flac` files (or a mix)
+before running `:edit`.
 Fields shared by every selected file are pre-filled; differing fields
 start blank. Only fields you fill in are written — blank fields are
 left unchanged on every file. The Title field is disabled in bulk
@@ -179,8 +186,9 @@ whole album at once.
 
 ## Smart Tags from Browser
 
-Press `Ctrl+T` in the file browser to automatically fill missing ID3
-tags for the selected `.mp3` file(s) without opening the tag editor.
+Press `Ctrl+T` in the file browser to automatically fill missing tags
+for the selected `.mp3` or `.flac` file(s) without opening the tag
+editor.
 
 - Sends each file's basename to Claude Haiku, which guesses Artist,
   Title, and Year from the filename.

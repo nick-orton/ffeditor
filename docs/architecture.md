@@ -29,9 +29,9 @@ and message routing.
      └─────┬──────┘ └─────┬─────┘ └─────────────┘
            │              │
            │        ┌─────▼──────┐   ┌────────────┐
-           │        │  id3 lib   │   │ claude.go  │
-           │        └────────────┘   │ Haiku API  │
-           │                         └────────────┘
+           │        │  tags.go   │   │ claude.go  │
+           │        │ tag I/O    │   │ Haiku API  │
+           │        └────────────┘   └────────────┘
      ┌─────▼───────────────────────┐
      │        converter.go         │
      │   ffmpeg subprocess mgmt    │
@@ -149,7 +149,7 @@ it can render correctly.
 type browserModel struct {
     dir        string                  // current absolute directory path
     entries    []os.DirEntry           // current visible listing (filtered)
-    tagCache   map[string]tagSummary   // cached Artist/Title for .mp3 files
+    tagCache   map[string]tagSummary   // cached Artist/Title for blessed files
     cursor     int                     // index of highlighted entry
     offset     int                     // scroll offset for viewport
     selected   map[int]bool            // indices toggled with Space
@@ -192,29 +192,46 @@ type browserModel struct {
   nothing is toggled, returns a slice containing only the cursor entry
   — this provides unified handling for single vs. multi operations.
 
-**Audio file detection:**
+**Audio file detection (defined in `formats.go`):**
 
 ```go
-var audioExts = map[string]bool{
-    ".mp3": true, ".opus": true, ".m4a": true,
-    ".flac": true, ".ogg": true,
+var audioExts = extSet{
+    ".mp3": {}, ".flac": {},
+    ".opus": {}, ".m4a": {}, ".ogg": {}, ".aac": {}, ".wav": {},
 }
 
-func isAudio(name string) bool {
-    return audioExts[strings.ToLower(filepath.Ext(name))]
-}
+var convertibleExts = extSet{".opus": {}, ".m4a": {}, ".ogg": {}, ".aac": {}, ".wav": {}}
+
+var blessedExts = extSet{".mp3": {}, ".flac": {}}
+
+func isAudio(name string) bool       { return audioExts.contains(name) }
+func isConvertible(name string) bool { return convertibleExts.contains(name) }
+func isBlessed(name string) bool     { return blessedExts.contains(name) }
 ```
 
+`convertibleExts` identifies formats that can be converted to a blessed
+format (WAV → FLAC; others → MP3). `isConvertible` is used by
+`buildConvertList` to gather the input file list for the `convert`
+command.
+
+`blessedExts` identifies formats that support tag editing (MP3 and
+FLAC). `isBlessed` is used to filter files for the `:tag`, `:edit`,
+and `smart-tag` commands, and to determine which files get tag summary
+display in the browser.
+
 Audio files are rendered with a distinct Lip Gloss style (cyan
-foreground). Directories get a trailing `/` and bold style. Selected
-entries get an inverted/highlighted background.
+foreground). "Blessed" formats (`.mp3`, `.flac`) — those that support
+tag editing — are rendered with `styleBlessed` (bold cyan). Directories
+get a trailing `/` and bold style. Selected entries get an
+inverted/highlighted background.
 
 **Tag summary column:**
 
-`loadTagCache(entries, dir)` reads Artist and Title from every `.mp3`
-in the listing and stores the results in `tagCache`. The cache is built
-on directory load and refreshed after a tag save. In the browser view,
-each `.mp3` row displays `Artist · Title` right-aligned in the
+`loadTagCache(entries, dir)` reads Artist and Title from every blessed
+file (`.mp3`, `.flac`) in the listing via `readTagSummary` (defined in
+`tags.go`) and stores the results in `tagCache`. The cache is built on
+directory load and refreshed after a tag save. In the browser view,
+each blessed file row displays `Artist · Title` right-aligned in the
 remaining terminal width (hidden when fewer than 12 chars are
 available; shown as `—` for untagged files).
 
@@ -246,11 +263,20 @@ returns Bubble Tea `Cmd`s for async execution.
 
 **Core function:**
 
+`targetForExt(srcExt string) convertTarget` selects the output
+extension and codec args based on the source format:
+
+- `.wav` → `.flac` with `-codec:a flac` (lossless → lossless)
+- all others → `.mp3` with `-codec:a libmp3lame -qscale:a 2`
+
 ```go
 func convertFile(ctx context.Context, src string) tea.Cmd {
     return func() tea.Msg {
+        ext := strings.ToLower(filepath.Ext(src))
+        target := targetForExt(ext)
         dest := filepath.Join(filepath.Dir(src),
-            strings.TrimSuffix(filepath.Base(src), filepath.Ext(src))+".mp3")
+            strings.TrimSuffix(filepath.Base(src),
+                filepath.Ext(src))+target.ext)
 
         if _, err := os.Stat(dest); err == nil {
             return convertSkippedMsg{src}
@@ -258,16 +284,16 @@ func convertFile(ctx context.Context, src string) tea.Cmd {
 
         // ogg/opus store user tags in stream-level metadata (Vorbis
         // Comments), so they must be mapped to global output metadata
-        // explicitly. m4a stores tags at the container level, so
-        // -map_metadata 0 suffices.
+        // explicitly. m4a and wav store tags at the container level,
+        // so -map_metadata 0 suffices.
         metaArgs := []string{"-map_metadata", "0"}
-        ext := strings.ToLower(filepath.Ext(src))
         if ext == ".opus" || ext == ".ogg" {
             metaArgs = []string{"-map_metadata:g", "0:s:0"}
         }
 
         args := append([]string{"-y", "-i", src}, metaArgs...)
-        args = append(args, "-codec:a", "libmp3lame", "-qscale:a", "2", dest)
+        args = append(args, target.codecArgs...)
+        args = append(args, dest)
         cmd := exec.CommandContext(ctx, "ffmpeg", args...)
         cmd.Stdout = nil
         cmd.Stderr = nil
@@ -314,7 +340,7 @@ type convertProgressMsg struct{ current, total int }
    ```
 
 5. Return `convertFile(ctx, files[0])` as the first `Cmd`. The output
-   `.mp3` is written alongside the source file (same directory).
+   file is written alongside the source file (same directory).
 6. On each `convertDoneMsg`/`convertErrMsg`/`convertSkippedMsg`,
    increment the relevant counter and call `nextConvert`:
    - If `convertCancelled`: clean up context, clear the queue,
@@ -328,7 +354,7 @@ type convertProgressMsg struct{ current, total int }
 Conversions run **sequentially** (one ffmpeg process at a time) to
 avoid saturating CPU/disk on large batches.
 
-### 2.5 `tagger.go` — ID3 Tag Editor
+### 2.5 `tagger.go` — Tag Editor
 
 **Struct:**
 
@@ -352,40 +378,20 @@ type tagField struct {
 }
 ```
 
-**Library choice: `github.com/bogem/id3v2`**
-
-Pure Go, no CGo dependency. Supports ID3v2.3 and ID3v2.4 frames.
-Usage:
-
-```go
-// Read
-tag, _ := id3v2.Open(path, id3v2.Options{Parse: true})
-title := tag.Title()
-artist := tag.Artist()
-tag.Close()
-
-// Write
-tag, _ := id3v2.Open(path, id3v2.Options{Parse: true})
-tag.SetTitle("New Title")
-tag.Save()
-tag.Close()
-
-// Track number (TRCK frame — no dedicated method)
-frame := tag.GetLastFrame("TRCK")
-if tf, ok := frame.(id3v2.TextFrame); ok { track = tf.Text }
-tag.DeleteFrames("TRCK")
-tag.AddTextFrame("TRCK", id3v2.EncodingUTF8, value)
-```
+The tagger is format-agnostic: it reads and writes tags through the
+`readTags`/`writeTags` dispatch functions in `tags.go`, which route to
+the correct format-specific implementation based on file extension.
+The tagger itself has no direct dependency on any tag library.
 
 **Single-file flow:**
 
-1. Open the file, read all six fields into `tagField` structs with
-   `original` set.
+1. Call `readTags(path)` to load all six fields into `tagField` structs
+   with `original` set.
 2. Render the tag editing view (see design.md layout).
 3. On `Ctrl+T`: emit `modeTagSearching`; root model dispatches
    `claudeGuessTagsCmd`. On result, blank fields are pre-filled.
-4. On `Ctrl+S`: for each field where `value != original`, write the
-   new value. Close the tag handle. Return `tagSavedMsg`.
+4. On `Ctrl+S`: for each field where `value != original`, call
+   `writeTags` with the appropriate write mask. Return `tagSavedMsg`.
 5. On `Esc`: discard, return `tagCancelledMsg`.
 
 **Bulk tagging flow:**
@@ -468,7 +474,61 @@ field's value is rendered with `styleTagFocused` (underline) and a
 `▌` cursor appended. In bulk mode the Title field value is rendered
 with `styleTagDisabled` (dim, color 240) regardless of focus.
 
-### 2.6 `commands.go` — Command Bar
+### 2.6 `tags.go` — Format-Agnostic Tag I/O
+
+This module centralises all audio tag reading and writing behind a
+format-dispatching interface. Neither `tagger.go`, `browser.go`, nor
+`commands.go` import any tag library directly — they call through
+`readTags`/`writeTags` which route by file extension.
+
+**Core types and functions:**
+
+```go
+type tagData struct {
+    Title, Artist, Album, Year, Track, Genre string
+}
+
+func readTags(path string) (tagData, error)
+func writeTags(path string, data tagData, write [6]bool) error
+func readTagSummary(path string) tagSummary
+```
+
+`writeTags` takes a `[6]bool` write mask so callers can specify exactly
+which fields to update: `[0]=Title, [1]=Artist, [2]=Album, [3]=Year,
+[4]=Track, [5]=Genre`.
+
+**Format backends:**
+
+| Ext     | Read fn          | Write fn          | Tag format      |
+|---------|------------------|-------------------|-----------------|
+| `.mp3`  | `readMP3Tags`    | `writeMP3Tags`    | ID3v2.3/2.4     |
+| `.flac` | `readFLACTags`   | `writeFLACTags`   | Vorbis Comments |
+
+Libraries: `bogem/id3v2/v2` (MP3); `go-flac/go-flac` and
+`go-flac/flacvorbis` (FLAC).
+
+Unknown extensions fall through to the MP3 backend (default case).
+
+**FLAC Vorbis Comment key mapping:**
+
+| Field | Vorbis Comment key |
+|-------|--------------------|
+| Title | `TITLE`            |
+| Artist| `ARTIST`           |
+| Album | `ALBUM`            |
+| Year  | `DATE`             |
+| Track | `TRACKNUMBER`      |
+| Genre | `GENRE`            |
+
+Note that FLAC uses `DATE` (not `YEAR`) and `TRACKNUMBER` (not `TRCK`)
+per the Vorbis Comment specification.
+
+**`readTagSummary(path string) tagSummary`** — convenience wrapper used
+by `loadTagCache` in `browser.go`. Calls `readTags` and returns only
+the Artist and Title fields. Previously lived in `browser.go`; moved
+here to colocate all tag I/O.
+
+### 2.7 `commands.go` — Command Bar
 
 **Struct:**
 
@@ -523,16 +583,18 @@ one match. No cycling.
 
 **Dispatch table** (handled in `model.go`'s `dispatchCommand`):
 
-| Command     | Validation                    | Behaviour                       |
-|-------------|-------------------------------|---------------------------------|
-| `convert`   | ffmpeg available; has targets | Emits `execConvertMsg`          |
-| `tag`       | Selection has `.mp3` files    | Emits `execTagMsg`              |
-| `cd`        | Path is an existing directory | Calls `browser.changeDir`       |
-| `q`         | —                             | Returns `tea.Quit`              |
-| `smart-tag` | Selection has `.mp3` files    | Sets `modeSmartTagging`; Cmd    |
+| Command     | Validation                       | Behaviour                       |
+|-------------|----------------------------------|---------------------------------|
+| `convert`   | ffmpeg available; has convertible files | Emits `execConvertMsg`   |
+| `tag`       | Selection has blessed files      | Emits `execTagMsg`              |
+| `edit`      | Selection has blessed files      | Alias for `tag`                 |
+| `cd`        | Path is an existing directory    | Calls `browser.changeDir`; no arg → home dir; supports `~` expansion |
+| `q`         | —                                | Returns `tea.Quit`              |
+| `smart-tag` | Selection has blessed files      | Sets `modeSmartTagging`; Cmd    |
 
 `smart-tag` is key-only (`Ctrl+T` in `modeBrowse`) and is not in
-`knownCommands`, so it does not appear in tab completion.
+`knownCommands`, so it does not appear in tab completion. `edit` is
+a tab-completable synonym for `tag`.
 
 Unknown commands → set `statusMsg` to `"Unknown command: foo"`.
 
@@ -549,12 +611,12 @@ Runs in a goroutine:
 
 1. Checks `ANTHROPIC_API_KEY`; returns `smartTagErrMsg` if unset.
 2. For each file:
-   a. Opens the ID3 tag and reads Title, Artist, Year.
+   a. Calls `readTags(path)` to read Title, Artist, Year.
    b. Skips the file if all three are already non-empty (no API
       call).
    c. Calls `callClaudeTagAPI` to guess missing values.
-   d. Opens the file again and writes only the fields that were
-      empty and the API returned a non-empty value for.
+   d. Calls `writeTags(path, data, mask)` to write only the fields
+      that were empty and the API returned a non-empty value for.
 3. Returns `smartTagDoneMsg{count}` where `count` is the number of
    files that were actually changed.
 
@@ -562,7 +624,7 @@ On `Enter`, the command bar parses, dispatches via `dispatchCommand`,
 clears `input`, sets `active = false`, and returns focus to
 `modeBrowse`.
 
-### 2.7 `claude.go` — Smart Tag Lookup
+### 2.8 `claude.go` — Smart Tag Lookup
 
 This module contains no TUI or ID3 code. It exposes the API helper
 and the two `tea.Cmd` factories that call it.
@@ -647,7 +709,7 @@ Root.Update receives       → mode = modeBrowse
 ### 3.3 Smart Tag Lookup
 
 ```text
-User opens single .mp3     → mode = modeTag, fields pre-filled
+User opens single file     → mode = modeTag, fields pre-filled
 User presses Ctrl+T        → mode = modeTagSearching
                            → spinnerTick + claudeGuessTagsCmd batched
 Spinner ticks              → spinnerFrame advances; "Searching..." shown
@@ -665,7 +727,7 @@ Root.Update receives       → mode = modeTag
 
 ```text
 User presses Ctrl+T        → dispatchCommand(m, "smart-tag", nil)
-cmdSmartTag called         → filter selected entries for .mp3 files
+cmdSmartTag called         → filter selected entries for blessed files
                            → mode = modeSmartTagging
                            → spinnerTick + smartTagCmd batched
 Spinner ticks              → spinnerFrame advances
@@ -726,7 +788,7 @@ arrive sequentially, and no locks are needed on model state.
 | ffmpeg process failure | `convertFile` Cmd     | Status bar; next in queue  |
 | Conversion cancelled   | `Ctrl+C` browse mode  | ffmpeg killed; stays open  |
 | File permission denied | `os.ReadDir`, tag I/O | Status bar error message   |
-| Invalid tag file       | `id3v2.Open`          | Status bar; back to browse |
+| Invalid tag file       | `readTags`/`writeTags` | Status bar; back to browse |
 | Unknown command        | `dispatchCommand`     | `"Unknown command: X"`     |
 | cd to bad dir          | `dispatchCommand`     | `"Not a directory: X"`     |
 | API key unset       | `claudeGuessTagsCmd` | `"Smart tag error: …"` (editor) |
@@ -746,6 +808,7 @@ var (
     styleHeader      = lipgloss.NewStyle().Bold(true).Background(lipgloss.Color("62"))
     styleDir         = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
     styleAudio       = lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
+    styleBlessed     = lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true)
     styleSymlink     = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
     styleCursor      = lipgloss.NewStyle().Background(lipgloss.Color("237"))
     styleSelected    = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
@@ -755,8 +818,14 @@ var (
     styleTagFocused  = lipgloss.NewStyle().Underline(true)
     styleTagDisabled = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
     styleCmdPrefix   = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+    styleTagInfo     = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+    styleNoTags      = lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
 )
 ```
+
+`styleBlessed` (bold cyan) is used for files that support tag editing
+(`.mp3`, `.flac`), distinguishing them from other audio files which use
+`styleAudio` (cyan, not bold).
 
 `styleTagDisabled` (color 240, dim gray) is applied to the Title field
 in bulk mode to signal that it is read-only.
@@ -772,7 +841,9 @@ ffeditor/
 ├── keys.go                // key event dispatch (handleKeyMsg + per-mode handlers)
 ├── browser.go
 ├── converter.go
-├── tagger.go
+├── tagger.go              // tag editor UI (format-agnostic)
+├── tags.go                // tag I/O dispatch: readTags/writeTags + format backends
+├── formats.go             // extension sets: audioExts, convertibleExts, blessedExts
 ├── commands.go
 ├── claude.go
 ├── help.go                // help screen view rendering
@@ -785,7 +856,9 @@ ffeditor/
 require (
     github.com/charmbracelet/bubbletea  v1.x
     github.com/charmbracelet/lipgloss   v1.x
-    github.com/bogem/id3v2/v2           v2.x
+    github.com/bogem/id3v2/v2           v2.x   // MP3 ID3v2 tags
+    github.com/go-flac/go-flac         v1.0.0  // FLAC container parsing
+    github.com/go-flac/flacvorbis      v0.2.0  // Vorbis Comment read/write
 )
 ```
 
@@ -801,7 +874,7 @@ navigation simple. Extracting packages (e.g., `pkg/convert`,
   conversion)
 - `ANTHROPIC_API_KEY` environment variable (optional — app runs
   without it but `Ctrl+T` smart tag lookup will show an error)
-- No CGo required (pure Go ID3 library)
+- No CGo required (pure Go tag libraries for both MP3 and FLAC)
 - Build: `go build -o ffeditor .`
 - Run: `./ffeditor [starting-directory]`
 
@@ -812,11 +885,13 @@ navigation simple. Extracting packages (e.g., `pkg/convert`,
 | `converter` | Integration test with a small `.opus` fixture;    |
 |             | verify `.mp3` output exists and is valid audio.   |
 |             | Skip if ffmpeg not available (`testing.Short`).   |
-| `tagger`    | Unit tests: tag read/write on a temp `.mp3`;      |
-|             | bulk blank-field skip; shared-tag prefill when    |
-|             | all files agree; blank when files disagree; bulk  |
-|             | `focusIndex` starts at Artist; navigation skips   |
-|             | Title in bulk mode.                               |
+| `tags`      | Unit tests: tag read/write on temp `.mp3` and     |
+|             | `.flac` files via `readTags`/`writeTags`; verify   |
+|             | Vorbis Comment key mapping (DATE, TRACKNUMBER).   |
+| `tagger`    | Unit tests: bulk blank-field skip; shared-tag     |
+|             | prefill when all files agree; blank when files    |
+|             | disagree; bulk `focusIndex` starts at Artist;     |
+|             | navigation skips Title in bulk mode.              |
 | `browser`   | Unit test: create a temp directory tree, assert   |
 |             | sort order (dirs first, alpha), filter behavior,  |
 |             | symlink navigation, and hidden-file toggle.       |

@@ -6,6 +6,7 @@ var (
 	styleHeader     = lipgloss.NewStyle().Bold(true).Background(lipgloss.Color("62"))
 	styleDir        = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
 	styleAudio      = lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
+	styleBlessed    = lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true)
 	styleCursor     = lipgloss.NewStyle().Background(lipgloss.Color("237"))
 	styleSelected   = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
 	styleStatusOk   = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
