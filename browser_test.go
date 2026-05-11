@@ -436,6 +436,333 @@ func TestSelectedEntries_UsesVisible(t *testing.T) {
 	}
 }
 
+func TestApplyFilter_NoMatchesProducesEmptyVisible(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.mp3", "b.mp3"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m := newBrowserModel(dir)
+	m = m.applyFilter("zzz")
+
+	if len(m.visible) != 0 {
+		t.Errorf("expected 0 visible entries for non-matching filter, got %d", len(m.visible))
+	}
+	if len(m.entries) != 2 {
+		t.Errorf("entries should be unchanged, got %d", len(m.entries))
+	}
+}
+
+func TestApplyFilter_ClearsSelection(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.mp3", "b.mp3", "c.mp3"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m := newBrowserModel(dir)
+	m.selected[0] = true
+	m.selected[2] = true
+
+	m = m.applyFilter("b")
+
+	if len(m.selected) != 0 {
+		t.Errorf("expected selection cleared after applyFilter, got %v", m.selected)
+	}
+}
+
+func TestFilterMode_SlashEntersFilterMode(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "song.mp3"), nil, 0644)
+
+	m := newModel(dir, false)
+	m.width = 80
+	m.height = 24
+	m.browser.height = 20
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	rm := result.(model)
+
+	if rm.mode != modeFilter {
+		t.Errorf("expected modeFilter after '/', got mode %d", rm.mode)
+	}
+}
+
+func TestFilterMode_TypingNarrowsVisible(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"abc.mp3", "bcd.mp3", "xyz.mp3"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m := newModel(dir, false)
+	m.width = 80
+	m.height = 24
+	m.browser.height = 20
+
+	// Enter filter mode
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m = result.(model)
+
+	// Type 'b'
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("b")})
+	m = result.(model)
+
+	if m.browser.filterInput != "b" {
+		t.Errorf("expected filterInput 'b', got %q", m.browser.filterInput)
+	}
+	if len(m.browser.visible) != 2 {
+		t.Errorf("expected 2 visible entries, got %d", len(m.browser.visible))
+	}
+
+	// Type 'cd' — "bcd" matches only bcd.mp3
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	m = result.(model)
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	m = result.(model)
+
+	if m.browser.filterInput != "bcd" {
+		t.Errorf("expected filterInput 'bcd', got %q", m.browser.filterInput)
+	}
+	if len(m.browser.visible) != 1 || m.browser.visible[0].Name() != "bcd.mp3" {
+		t.Errorf("expected only bcd.mp3, got %v", m.browser.visible)
+	}
+}
+
+func TestFilterMode_BackspaceShortensQuery(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"abc.mp3", "bcd.mp3"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m := newModel(dir, false)
+	m.width = 80
+	m.height = 24
+	m.browser.height = 20
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m = result.(model)
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("b")})
+	m = result.(model)
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	m = result.(model)
+	// filterInput == "bc", visible == [bcd.mp3]
+
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	m = result.(model)
+
+	if m.browser.filterInput != "b" {
+		t.Errorf("expected filterInput 'b' after backspace, got %q", m.browser.filterInput)
+	}
+	if len(m.browser.visible) != 2 {
+		t.Errorf("expected 2 visible entries after backspace, got %d", len(m.browser.visible))
+	}
+}
+
+func TestFilterMode_BackspaceOnEmptyIsNoop(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "a.mp3"), nil, 0644)
+
+	m := newModel(dir, false)
+	m.width = 80
+	m.height = 24
+	m.browser.height = 20
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m = result.(model)
+
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	m = result.(model)
+
+	if m.mode != modeFilter {
+		t.Errorf("expected to stay in modeFilter, got mode %d", m.mode)
+	}
+	if m.browser.filterInput != "" {
+		t.Errorf("expected empty filterInput, got %q", m.browser.filterInput)
+	}
+}
+
+func TestFilterMode_EnterKeepsFilterAndReturnsToBrowse(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"abc.mp3", "xyz.mp3"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m := newModel(dir, false)
+	m.width = 80
+	m.height = 24
+	m.browser.height = 20
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m = result.(model)
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	m = result.(model)
+	// visible = [abc.mp3], filterInput = "a"
+
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = result.(model)
+
+	if m.mode != modeBrowse {
+		t.Errorf("expected modeBrowse after Enter, got mode %d", m.mode)
+	}
+	if m.browser.filterInput != "a" {
+		t.Errorf("expected filterInput 'a' preserved, got %q", m.browser.filterInput)
+	}
+	if len(m.browser.visible) != 1 || m.browser.visible[0].Name() != "abc.mp3" {
+		t.Errorf("expected filtered visible preserved, got %v", m.browser.visible)
+	}
+}
+
+func TestFilterMode_EscClearsFilterAndReturnsToBrowse(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"abc.mp3", "xyz.mp3"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m := newModel(dir, false)
+	m.width = 80
+	m.height = 24
+	m.browser.height = 20
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m = result.(model)
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	m = result.(model)
+
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = result.(model)
+
+	if m.mode != modeBrowse {
+		t.Errorf("expected modeBrowse after Esc, got mode %d", m.mode)
+	}
+	if m.browser.filterInput != "" {
+		t.Errorf("expected filterInput cleared, got %q", m.browser.filterInput)
+	}
+	if len(m.browser.visible) != 2 {
+		t.Errorf("expected all 2 entries restored, got %d", len(m.browser.visible))
+	}
+}
+
+func TestBrowseMode_EscClearsActiveFilter(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"abc.mp3", "xyz.mp3"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m := newModel(dir, false)
+	m.width = 80
+	m.height = 24
+	m.browser.height = 20
+
+	// Apply a filter then return to browse mode via Enter
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m = result.(model)
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	m = result.(model)
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = result.(model)
+	// modeBrowse, filterInput = "a", visible = [abc.mp3]
+
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = result.(model)
+
+	if m.browser.filterInput != "" {
+		t.Errorf("expected filterInput cleared by Esc in browse mode, got %q", m.browser.filterInput)
+	}
+	if len(m.browser.visible) != 2 {
+		t.Errorf("expected all 2 entries after Esc in browse mode, got %d", len(m.browser.visible))
+	}
+}
+
+func TestFilterMode_ArrowsNavigateVisible(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"ba.mp3", "bb.mp3", "bc.mp3"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m := newModel(dir, false)
+	m.width = 80
+	m.height = 24
+	m.browser.height = 20
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m = result.(model)
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("b")})
+	m = result.(model)
+	// visible = [ba.mp3, bb.mp3, bc.mp3], cursor = 0
+
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = result.(model)
+
+	if m.browser.cursor != 1 {
+		t.Errorf("expected cursor 1 after down arrow, got %d", m.browser.cursor)
+	}
+
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = result.(model)
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = result.(model)
+
+	if m.browser.cursor != 1 {
+		t.Errorf("expected cursor 1 after up arrow, got %d", m.browser.cursor)
+	}
+}
+
+func TestFilterMode_SelectionClearedOnSlash(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.mp3", "b.mp3", "c.mp3"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m := newModel(dir, false)
+	m.width = 80
+	m.height = 24
+	m.browser.height = 20
+	m.browser.selected[0] = true
+	m.browser.selected[2] = true
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m = result.(model)
+
+	if len(m.browser.selected) != 0 {
+		t.Errorf("expected selection cleared on '/', got %v", m.browser.selected)
+	}
+}
+
+func TestFilterMode_ChangeDirClearsFilter(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sub")
+	if err := os.MkdirAll(sub, 0755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(dir, "abc.mp3"), nil, 0644)
+
+	m := newBrowserModel(dir)
+	m = m.applyFilter("abc")
+	// filterInput = "abc", visible = [abc.mp3]
+
+	m, _ = m.changeDir(sub)
+
+	if m.filterInput != "" {
+		t.Errorf("expected filterInput cleared after changeDir, got %q", m.filterInput)
+	}
+	if len(m.visible) != len(m.entries) {
+		t.Errorf("expected visible == entries after changeDir, got visible=%d entries=%d",
+			len(m.visible), len(m.entries))
+	}
+}
+
 func TestScrolling(t *testing.T) {
 	dir := t.TempDir()
 	for i := 0; i < 10; i++ {
