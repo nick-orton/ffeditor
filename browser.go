@@ -180,11 +180,27 @@ func (m browserModel) applyFilter(query string) browserModel {
 }
 
 func (m browserModel) clearFilter() browserModel {
+	var target string
+	if len(m.visible) > 0 {
+		target = m.visible[m.cursor].Name()
+	}
 	m.filterInput = ""
 	m.visible = m.entries
 	m.selected = make(map[int]bool)
 	m.cursor = 0
 	m.offset = 0
+	for i, e := range m.entries {
+		if e.Name() == target {
+			m.cursor = i
+			if m.cursor < m.offset {
+				m.offset = m.cursor
+			}
+			if m.height > 0 && m.cursor >= m.offset+m.height {
+				m.offset = m.cursor - m.height + 1
+			}
+			break
+		}
+	}
 	return m
 }
 

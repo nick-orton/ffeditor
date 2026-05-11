@@ -403,8 +403,7 @@ func TestClearFilter_RestoresAll(t *testing.T) {
 	}
 
 	m := newBrowserModel(dir)
-	m = m.applyFilter("b")
-	m.cursor = 0
+	m = m.applyFilter("b") // visible = [b.mp3], cursor = 0
 
 	m = m.clearFilter()
 	if len(m.visible) != 3 {
@@ -413,8 +412,30 @@ func TestClearFilter_RestoresAll(t *testing.T) {
 	if m.filterInput != "" {
 		t.Errorf("expected empty filterInput, got %q", m.filterInput)
 	}
-	if m.cursor != 0 || m.offset != 0 {
-		t.Errorf("expected cursor/offset 0, got cursor=%d offset=%d", m.cursor, m.offset)
+	// b.mp3 is at index 1 in the full sorted listing
+	if m.cursor != 1 {
+		t.Errorf("expected cursor on b.mp3 (index 1), got %d", m.cursor)
+	}
+}
+
+func TestClearFilter_PreservesCursorPosition(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"ba.mp3", "bb.mp3", "bc.mp3", "other.mp3"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m := newBrowserModel(dir)
+	m.height = 10
+	m = m.applyFilter("b") // visible = [ba.mp3, bb.mp3, bc.mp3]
+	m.cursor = 2            // bb.mp3 → bc.mp3 highlighted
+
+	m = m.clearFilter()
+
+	if m.visible[m.cursor].Name() != "bc.mp3" {
+		t.Errorf("expected cursor on bc.mp3 after clearFilter, got %s",
+			m.visible[m.cursor].Name())
 	}
 }
 
