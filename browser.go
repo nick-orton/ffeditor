@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strings"
 
-	id3 "github.com/bogem/id3v2/v2"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -32,15 +31,6 @@ func (t tagSummary) display() string {
 		return t.title
 	}
 	return ""
-}
-
-func readTagSummary(path string) tagSummary {
-	tag, err := id3.Open(path, id3.Options{Parse: true})
-	if err != nil {
-		return tagSummary{}
-	}
-	defer tag.Close()
-	return tagSummary{artist: tag.Artist(), title: tag.Title()}
 }
 
 func loadTagCache(entries []os.DirEntry, dir string) map[string]tagSummary {

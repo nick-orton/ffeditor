@@ -5,7 +5,6 @@ import (
 	"strings"
 	"unicode"
 
-	id3 "github.com/bogem/id3v2/v2"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -44,51 +43,29 @@ func newTaggerModel(files []string) (taggerModel, error) {
 	}
 
 	if len(files) == 1 {
-		tag, err := id3.Open(files[0], id3.Options{Parse: true})
+		data, err := readTags(files[0])
 		if err != nil {
 			return taggerModel{}, err
 		}
-		defer tag.Close()
-
-		fields[0].value = tag.Title()
-		fields[0].original = tag.Title()
-		fields[1].value = tag.Artist()
-		fields[1].original = tag.Artist()
-		fields[2].value = tag.Album()
-		fields[2].original = tag.Album()
-		fields[3].value = tag.Year()
-		fields[3].original = tag.Year()
-
-		if frame := tag.GetLastFrame("TRCK"); frame != nil {
-			if tf, ok := frame.(id3.TextFrame); ok {
-				fields[4].value = tf.Text
-				fields[4].original = tf.Text
-			}
+		vals := [6]string{data.Title, data.Artist, data.Album, data.Year, data.Track, data.Genre}
+		for i, v := range vals {
+			fields[i].value = v
+			fields[i].original = v
 		}
-
-		fields[5].value = tag.Genre()
-		fields[5].original = tag.Genre()
 	} else {
 		// Bulk mode: pre-fill fields where all files share the same value.
 		allVals := make([][]string, len(files))
 		for i, file := range files {
+			data, err := readTags(file)
 			vals := make([]string, 6)
-			tag, err := id3.Open(file, id3.Options{Parse: true})
-			if err != nil {
-				allVals[i] = vals
-				continue
+			if err == nil {
+				vals[0] = data.Title
+				vals[1] = data.Artist
+				vals[2] = data.Album
+				vals[3] = data.Year
+				vals[4] = data.Track
+				vals[5] = data.Genre
 			}
-			vals[0] = tag.Title()
-			vals[1] = tag.Artist()
-			vals[2] = tag.Album()
-			vals[3] = tag.Year()
-			if frame := tag.GetLastFrame("TRCK"); frame != nil {
-				if tf, ok := frame.(id3.TextFrame); ok {
-					vals[4] = tf.Text
-				}
-			}
-			vals[5] = tag.Genre()
-			tag.Close()
 			allVals[i] = vals
 		}
 		for fi := range fields {
@@ -222,36 +199,19 @@ func (m taggerModel) saveTags() tea.Cmd {
 
 	return func() tea.Msg {
 		if len(files) == 1 {
-			tag, err := id3.Open(files[0], id3.Options{Parse: true})
-			if err != nil {
-				return tagErrMsg{err}
+			data := tagData{
+				Title:  fields[0].value,
+				Artist: fields[1].value,
+				Album:  fields[2].value,
+				Year:   fields[3].value,
+				Track:  fields[4].value,
+				Genre:  fields[5].value,
 			}
-			defer tag.Close()
-
+			var mask [6]bool
 			for i, f := range fields {
-				if f.value == f.original {
-					continue
-				}
-				switch i {
-				case 0:
-					tag.SetTitle(f.value)
-				case 1:
-					tag.SetArtist(f.value)
-				case 2:
-					tag.SetAlbum(f.value)
-				case 3:
-					tag.SetYear(f.value)
-				case 4:
-					tag.DeleteFrames("TRCK")
-					if f.value != "" {
-						tag.AddTextFrame("TRCK", id3.EncodingUTF8, f.value)
-					}
-				case 5:
-					tag.SetGenre(f.value)
-				}
+				mask[i] = f.value != f.original
 			}
-
-			if err := tag.Save(); err != nil {
+			if err := writeTags(files[0], data, mask); err != nil {
 				return tagErrMsg{err}
 			}
 			return tagSavedMsg{}
@@ -260,37 +220,29 @@ func (m taggerModel) saveTags() tea.Cmd {
 		// Bulk tagging: only write non-empty fields.
 		count := 0
 		for _, file := range files {
-			tag, err := id3.Open(file, id3.Options{Parse: true})
-			if err != nil {
+			data := tagData{
+				Title:  fields[0].value,
+				Artist: fields[1].value,
+				Album:  fields[2].value,
+				Year:   fields[3].value,
+				Track:  fields[4].value,
+				Genre:  fields[5].value,
+			}
+			var mask [6]bool
+			anySet := false
+			for i, f := range fields {
+				if f.value != "" {
+					mask[i] = true
+					anySet = true
+				}
+			}
+			if !anySet {
 				continue
 			}
-			changed := false
-			for i, f := range fields {
-				if f.value == "" {
-					continue
-				}
-				changed = true
-				switch i {
-				case 0:
-					tag.SetTitle(f.value)
-				case 1:
-					tag.SetArtist(f.value)
-				case 2:
-					tag.SetAlbum(f.value)
-				case 3:
-					tag.SetYear(f.value)
-				case 4:
-					tag.DeleteFrames("TRCK")
-					tag.AddTextFrame("TRCK", id3.EncodingUTF8, f.value)
-				case 5:
-					tag.SetGenre(f.value)
-				}
+			if err := writeTags(file, data, mask); err != nil {
+				continue
 			}
-			if changed {
-				tag.Save()
-				count++
-			}
-			tag.Close()
+			count++
 		}
 		return tagBulkSavedMsg{count}
 	}
